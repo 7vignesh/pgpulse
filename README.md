@@ -14,7 +14,7 @@ doing?"** how much traffic, how many errors, how slow.
 It works like a fitness tracker for your API. PgPulse can't see your traffic on
 its own; your application **reports** each request to it ("`/checkout` returned
 200 in 42ms"). PgPulse stores those records and lets you query analytics over
-them — total requests, error rates, slowest endpoints, latency percentiles,
+them total requests, error rates, slowest endpoints, latency percentiles,
 traffic over time.
 
 It's the same idea as Datadog / New Relic / Stripe's API dashboards, scoped to
@@ -31,7 +31,7 @@ Key points to understand before using it:
 - **Two kinds of traffic:** *writes* (your server reporting events) and *reads*
   (you querying analytics). Writes go to the primary database; reads are served
   from a read replica so heavy dashboards never slow down ingestion.
-- **There is no built-in UI.** You interact over HTTP — from your own code, a
+- **There is no built-in UI.** You interact over HTTP from your own code, a
   script, or a dashboard you build on top. The `curl` examples below are just
   the simplest way to see it work.
 
@@ -40,10 +40,10 @@ Key points to understand before using it:
 Three steps. The only real integration work is step 2.
 
 **1. Get a tenant + API key** (see [Try it](#try-it) below). Store the key as a
-secret in your server's environment — never in browser code.
+secret in your server's environment never in browser code.
 
 **2. Make your app report each request to PgPulse.** Add a small hook in your
-backend that fires after every response. Example for an Express/Node app — the
+backend that fires after every response. Example for an Express/Node app the
 idea is identical in any framework (Django, Rails, Go, etc.): on each request,
 send one HTTP POST.
 
@@ -74,7 +74,7 @@ app.use((req, res, next) => {
 For high traffic, buffer events and send them in bulk to `/v1/events/batch`
 (up to 1000 per request, inserted in one transaction) instead of one at a time.
 
-**3. Query your analytics** whenever you want insight — directly, on a
+**3. Query your analytics** whenever you want insight directly, on a
 schedule, or from a dashboard you build. See the analytics calls under
 [Try it](#try-it). You'll learn things like "`/checkout` has a 12% error rate"
 or "my p99 latency on `/search` is 2s."
@@ -82,13 +82,13 @@ or "my p99 latency on `/search` is 2s."
 > Note on browsers: the `x-api-key` is a server-side secret and must not be
 > embedded in browser JavaScript (anyone could read it in DevTools). To build a
 > human-facing dashboard, put a login/session layer in front and have *your
-> server* call these endpoints — keep the key on the server. (Not included in
+> server* call these endpoints keep the key on the server. (Not included in
 > this project; flagged intentionally.)
 
 ## Stack
 
 - **API:** Node.js + Fastify + TypeScript (no Express, no ORM)
-- **DB:** PostgreSQL 16 — RANGE-partitioned events, RLS, BRIN/partial/covering/
+- **DB:** PostgreSQL 16 RANGE-partitioned events, RLS, BRIN/partial/covering/
   GIN indexes, `hourly_stats` materialized view
 - **Query layer:** `pg` (node-postgres), parameterized everywhere, no `SELECT *`
 - **Pooling:** PgBouncer in transaction mode
@@ -168,7 +168,7 @@ curl -s "localhost:3000/v1/analytics/timeseries?granularity=hour" -H "x-api-key:
 Analytics endpoints take `?from=&to=` (ISO-8601, default last 24h).
 
 \* The tenant admin routes are intentionally **unauthenticated in this
-project** — in production they must sit behind an operator auth layer (admin
+project** in production they must sit behind an operator auth layer (admin
 JWT/mTLS). This is flagged, not silently shipped.
 
 ## Development
