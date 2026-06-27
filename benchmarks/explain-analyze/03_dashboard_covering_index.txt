@@ -1,0 +1,31 @@
+SET
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1.00..156.30 rows=100 width=25) (actual time=0.086..0.143 rows=100 loops=1)
+   Buffers: shared hit=15
+   ->  Merge Append  (cost=1.00..564.73 rows=363 width=25) (actual time=0.086..0.135 rows=100 loops=1)
+         Sort Key: events.ingested_at DESC
+         Buffers: shared hit=15
+         Subplans Removed: 1
+         ->  Index Only Scan using events_2026_06_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_06 events_1  (cost=0.42..526.04 rows=359 width=25) (actual time=0.062..0.103 rows=100 loops=1)
+               Index Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               Heap Fetches: 100
+               Buffers: shared hit=9
+         ->  Index Only Scan using events_2026_07_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_07 events_2  (cost=0.13..8.15 rows=1 width=46) (actual time=0.006..0.007 rows=0 loops=1)
+               Index Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               Heap Fetches: 0
+               Buffers: shared hit=2
+         ->  Index Only Scan using events_2026_08_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_08 events_3  (cost=0.13..8.15 rows=1 width=46) (actual time=0.009..0.009 rows=0 loops=1)
+               Index Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               Heap Fetches: 0
+               Buffers: shared hit=2
+         ->  Index Only Scan using events_default_tenant_id_ingested_at_endpoint_status_code_l_idx on events_default events_4  (cost=0.13..8.15 rows=1 width=46) (actual time=0.007..0.007 rows=0 loops=1)
+               Index Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               Heap Fetches: 0
+               Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=784
+ Planning Time: 1.642 ms
+ Execution Time: 0.246 ms
+(26 rows)
+

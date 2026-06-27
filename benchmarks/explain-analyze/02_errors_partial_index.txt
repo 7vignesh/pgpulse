@@ -1,0 +1,27 @@
+SET
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=739.91..739.97 rows=25 width=21) (actual time=1.434..1.436 rows=15 loops=1)
+   Sort Key: (count(*)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=513
+   ->  HashAggregate  (cost=739.08..739.33 rows=25 width=21) (actual time=1.390..1.393 rows=15 loops=1)
+         Group Key: events.endpoint, events.status_code
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=510
+         ->  Append  (cost=0.00..731.49 rows=1012 width=13) (actual time=0.236..1.224 rows=1007 loops=1)
+               Buffers: shared hit=510
+               Subplans Removed: 4
+               ->  Bitmap Heap Scan on events_2026_06 events_1  (cost=45.15..726.43 rows=1008 width=13) (actual time=0.236..1.163 rows=1007 loops=1)
+                     Recheck Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '1 day'::interval)) AND (ingested_at < now()) AND (status_code >= 400))
+                     Heap Blocks: exact=503
+                     Buffers: shared hit=510
+                     ->  Bitmap Index Scan on events_2026_06_tenant_id_ingested_at_idx  (cost=0.00..44.90 rows=1008 width=0) (actual time=0.187..0.187 rows=1007 loops=1)
+                           Index Cond: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '1 day'::interval)) AND (ingested_at < now()))
+                           Buffers: shared hit=7
+ Planning:
+   Buffers: shared hit=804
+ Planning Time: 1.470 ms
+ Execution Time: 1.621 ms
+(22 rows)
+

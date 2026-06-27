@@ -1,0 +1,19 @@
+=== A: dashboard overview WITH indexes ===
+SET
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2147.09..2147.11 rows=1 width=48) (actual time=18.164..18.165 rows=1 loops=1)
+   Buffers: shared hit=628
+   ->  Append  (cost=0.00..1970.23 rows=17686 width=6) (actual time=0.012..16.568 rows=17676 loops=1)
+         Buffers: shared hit=628
+         Subplans Removed: 4
+         ->  Seq Scan on events_2026_06 events_1  (cost=0.00..1881.80 rows=17682 width=6) (actual time=0.012..15.341 rows=17676 loops=1)
+               Filter: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at < now()) AND (ingested_at >= (now() - '7 days'::interval)))
+               Rows Removed by Filter: 32476
+               Buffers: shared hit=628
+ Planning:
+   Buffers: shared hit=778
+ Planning Time: 2.511 ms
+ Execution Time: 18.224 ms
+(13 rows)
+

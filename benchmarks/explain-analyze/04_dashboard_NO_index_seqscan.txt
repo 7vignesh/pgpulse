@@ -1,0 +1,31 @@
+SET
+SET
+SET
+SET
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1646.73..1646.98 rows=100 width=25) (actual time=5.954..5.965 rows=100 loops=1)
+   Buffers: shared hit=631
+   ->  Sort  (cost=1646.73..1647.64 rows=363 width=25) (actual time=5.953..5.958 rows=100 loops=1)
+         Sort Key: events.ingested_at DESC
+         Sort Method: top-N heapsort  Memory: 32kB
+         Buffers: shared hit=631
+         ->  Append  (cost=0.00..1632.86 rows=363 width=25) (actual time=0.010..5.861 rows=318 loops=1)
+               Buffers: shared hit=628
+               Subplans Removed: 1
+               ->  Seq Scan on events_2026_06 events_1  (cost=0.00..1631.04 rows=359 width=25) (actual time=0.010..5.818 rows=318 loops=1)
+                     Filter: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+                     Rows Removed by Filter: 49834
+                     Buffers: shared hit=628
+               ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=46) (actual time=0.008..0.008 rows=0 loops=1)
+                     Filter: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=46) (actual time=0.008..0.008 rows=0 loops=1)
+                     Filter: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+               ->  Seq Scan on events_default events_4  (cost=0.00..0.00 rows=1 width=46) (actual time=0.002..0.002 rows=0 loops=1)
+                     Filter: ((tenant_id = '3e2c95b6-4fe6-4dcb-beff-c7532e66812c'::uuid) AND (ingested_at >= (now() - '02:00:00'::interval)))
+ Planning:
+   Buffers: shared hit=784
+ Planning Time: 1.398 ms
+ Execution Time: 6.024 ms
+(23 rows)
+
