@@ -2,14 +2,14 @@
 
 A production-grade, multi-tenant API analytics platform built on PostgreSQL 16.
 Ingest API request events per tenant, then query overview / endpoint /
-latency / error / timeseries analytics — all tenant-isolated by Row-Level
+latency / error / timeseries analytics all tenant-isolated by Row-Level
 Security and scaled with partitioning, a read replica, PgBouncer, and a
 materialized view refreshed by pg_cron.
 
 ## What is this, in plain terms?
 
 PgPulse answers one question for a backend team: **"how are my API endpoints
-doing?"** — how much traffic, how many errors, how slow.
+doing?"** how much traffic, how many errors, how slow.
 
 It works like a fitness tracker for your API. PgPulse can't see your traffic on
 its own; your application **reports** each request to it ("`/checkout` returned
