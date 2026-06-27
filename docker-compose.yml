@@ -1,0 +1,125 @@
+# ===========================================================================
+# PgPulse — full stack:
+#   postgres          primary (pg_stat_statements + pg_cron + replication)
+#   postgres-replica  streaming read replica
+#   pgbouncer         transaction-mode pooler in front of the primary
+#   migrate           one-shot migration runner (direct connection)
+#   app               Fastify API (writes via pgbouncer, reads via replica)
+# ===========================================================================
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: docker/primary/Dockerfile
+    image: pgpulse-postgres:16
+    container_name: pgpulse-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pgpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pgpulse_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-pgpulse}
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-replicator_secret}
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    volumes:
+      - pg_primary_data:/var/lib/postgresql/data
+      - ./docker/primary/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/primary/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./docker/primary/init-replication.sh:/docker-entrypoint-initdb.d/10-init-replication.sh:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pgpulse} -d ${POSTGRES_DB:-pgpulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [pgpulse]
+
+  postgres-replica:
+    image: pgpulse-postgres:16
+    container_name: pgpulse-postgres-replica
+    user: postgres
+    environment:
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-replicator_secret}
+    entrypoint: ["/entrypoint.sh"]
+    volumes:
+      - pg_replica_data:/var/lib/postgresql/data
+      - ./docker/replica/entrypoint.sh:/entrypoint.sh:ro
+    ports:
+      - "5434:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${REPLICATION_USER:-replicator} -d ${POSTGRES_DB:-pgpulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [pgpulse]
+
+  pgbouncer:
+    build:
+      context: .
+      dockerfile: docker/pgbouncer/Dockerfile
+    container_name: pgpulse-pgbouncer
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pgpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pgpulse_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-pgpulse}
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [pgpulse]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pgpulse-migrate
+    command: ["npx", "tsx", "src/db/migrate.ts", "up"]
+    environment:
+      # Migrations use the DIRECT connection (session mode), not pgbouncer.
+      ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@postgres:5432/${POSTGRES_DB:-pgpulse}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [pgpulse]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pgpulse-app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PRIMARY_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@pgbouncer:6432/${POSTGRES_DB:-pgpulse}
+      REPLICA_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@postgres-replica:5432/${POSTGRES_DB:-pgpulse}
+      ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@postgres:5432/${POSTGRES_DB:-pgpulse}
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+    ports:
+      - "3000:3000"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    networks: [pgpulse]
+
+volumes:
+  pg_primary_data:
+  pg_replica_data:
+
+networks:
+  pgpulse:
+    driver: bridge
