@@ -21,6 +21,7 @@ COPY --from=build /app/migrations ./migrations
 # tsx is needed for the migration runner (runs .ts directly).
 RUN npm install tsx@4.16.2
 COPY src ./src
+COPY scripts ./scripts
 COPY tsconfig.json ./
 EXPOSE 3000
 CMD ["node", "dist/server.js"]
