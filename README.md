@@ -92,7 +92,10 @@ or "my p99 latency on `/search` is 2s."
   GIN indexes, `hourly_stats` materialized view
 - **Query layer:** `pg` (node-postgres), parameterized everywhere, no `SELECT *`
 - **Pooling:** PgBouncer in transaction mode
-- **Scheduling:** pg_cron (hourly MV refresh, daily partition pre-creation)
+- **Scheduling:** pg_cron (hourly MV refresh, daily partition pre-creation,
+  per-minute alert evaluation)
+- **Alerts:** in-database threshold evaluation + webhook delivery (no queue lib,
+  no Redis)
 - **Observability:** pg_stat_statements + replica lag via `/health`
 - **Tests:** Vitest (unit) + supertest (integration)
 
@@ -163,6 +166,10 @@ curl -s "localhost:3000/v1/analytics/timeseries?granularity=hour" -H "x-api-key:
 | GET  | `/v1/analytics/latency` | x-api-key | p50/p95/p99 over time |
 | GET  | `/v1/analytics/errors` | x-api-key | breakdown by status + endpoint |
 | GET  | `/v1/analytics/timeseries` | x-api-key | volume by hour/day |
+| POST | `/v1/alerts/rules` | x-api-key | create an alert rule |
+| GET  | `/v1/alerts/rules` | x-api-key | list the tenant's rules |
+| DELETE | `/v1/alerts/rules/:id` | x-api-key | delete a rule (tenant-scoped) |
+| GET  | `/v1/alerts/events` | x-api-key | recent fired alerts (`?limit=`) |
 | GET  | `/health` | none | pool stats, replica lag, slow queries |
 
 Analytics endpoints take `?from=&to=` (ISO-8601, default last 24h).
@@ -170,6 +177,31 @@ Analytics endpoints take `?from=&to=` (ISO-8601, default last 24h).
 \* The tenant admin routes are intentionally **unauthenticated in this
 project** in production they must sit behind an operator auth layer (admin
 JWT/mTLS). This is flagged, not silently shipped.
+
+### Alerts
+
+Tenants set threshold rules on live metrics; PgPulse fires a webhook when one
+breaches. Evaluation runs **inside Postgres** every minute via `pg_cron`
+(`evaluate_alert_rules()`), so it keeps working even if the app is down.
+Webhook delivery is handled by an in-app poll worker (pg_cron can't make HTTP
+calls without pg_net). See [`docs/SCALING.md`](docs/SCALING.md) → "Alert System".
+
+```bash
+# alert when error_rate > 5% over 10 min on /api/checkout
+curl -s -XPOST localhost:3000/v1/alerts/rules -H "x-api-key: $KEY" \
+  -H 'content-type: application/json' -d '{
+    "name":"High error rate on checkout",
+    "metric":"error_rate", "operator":">", "threshold":5,
+    "window_minutes":10, "endpoint_filter":"/api/checkout",
+    "webhook_url":"https://your-site.com/webhook"
+  }'
+
+curl -s localhost:3000/v1/alerts/rules  -H "x-api-key: $KEY"   # list rules
+curl -s localhost:3000/v1/alerts/events -H "x-api-key: $KEY"   # fired alerts
+```
+
+Metrics: `error_rate` | `p95_latency_ms` | `request_volume`. Operators: `>` `<`.
+Windows: 5/10/15/30/60 min. Webhook URLs must be `https://`.
 
 ## Development
 
@@ -191,18 +223,19 @@ Routes are thin (auth + validate + delegate); all logic lives in `*/service.ts`.
 ## Docs
 
 - [`docs/SCHEMA.md`](docs/SCHEMA.md) — tables, partitioning, every index, MV strategy, RLS
-- [`docs/SCALING.md`](docs/SCALING.md) — PgBouncer, replica routing, partition maintenance, pg_partman, sub-partitioning, EXPLAIN ANALYZE
+- [`docs/SCALING.md`](docs/SCALING.md) — PgBouncer, replica routing, partition maintenance, pg_partman, sub-partitioning, EXPLAIN ANALYZE, alert system
 - [`schema/ERD.md`](schema/ERD.md) — Mermaid ERD + partition layout
 - [`benchmarks/explain-analyze/`](benchmarks/explain-analyze/) — captured query plans, before/after indexes
 
 ## Project layout
 
 ```
-migrations/           sequential raw SQL (tenants, partitions, indexes, MV, cron)
+migrations/           sequential raw SQL (tenants, partitions, indexes, MV, cron, alerts)
 src/db/               PgBouncer-aware pools + migration runner
 src/ingest/           POST /v1/events[/batch]  (multi-row INSERT + COPY path)
 src/query/            analytics services + MV-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
+src/alerts/           alert rules/events services, routes, webhook delivery worker
 src/middleware/       api-key auth, per-tenant rate limiting
 src/health/           /health: pool stats, replica lag, pg_stat_statements
 docker/               primary (pg_cron image + conf), replica, pgbouncer

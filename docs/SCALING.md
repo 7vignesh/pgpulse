@@ -193,3 +193,75 @@ rows in the hot partition:
 Every plan also shows `Subplans Removed: N` from partition pruning — the
 time-range predicate eliminates non-matching monthly partitions at plan time
 before any index is consulted.
+
+---
+
+## Alert System
+
+Tenants define alert rules (e.g. "error_rate > 5% over 10 minutes on
+`/api/checkout`"). When a threshold is breached, PgPulse records an alert event
+and POSTs a webhook to the tenant's registered URL. Migration `006` adds the
+`alert_rules` and `alert_events` tables, the `evaluate_alert_rules()` function,
+and a per-minute `pg_cron` job.
+
+### Why evaluation lives in Postgres, not the app
+
+`evaluate_alert_rules()` is PL/pgSQL run by `pg_cron`, deliberately not
+application code:
+
+- **Runs even if the app is down.** Alerting is the one thing that most needs
+  to keep working during an incident. pg_cron is part of the database, so
+  evaluation continues regardless of app health.
+- **Atomic, race-free evaluation.** Each rule's metric computation, cooldown
+  check, and `alert_events` insert happen in a single in-database pass. There
+  is no read-modify-write window between the app and the DB where two workers
+  could double-fire.
+- **Reads from raw `events`, not the materialized view.** Alerts must be near
+  real-time; the hourly MV would be up to an hour stale. The cost is a live
+  aggregate over the rule window, which is small (minutes of data) and well
+  served by the existing time + tenant indexes.
+
+### Cooldown
+
+After a rule fires, it will not fire again until its own `window_minutes` has
+elapsed (the evaluator checks `MAX(fired_at)` for the rule). This is intentional:
+the window *is* the natural cooldown — if you alert on a 10-minute error rate,
+re-alerting before 10 minutes have passed would just re-report the same window
+of bad data. It bounds notification volume to at most one per window per rule.
+
+### Webhook delivery model — fire-and-forget, 60s poll
+
+pg_cron **cannot make HTTP calls** without the `pg_net` extension, which is not
+installed here (keeping the stack dependency-free). So evaluation and delivery
+are split:
+
+```
+pg_cron (every minute)        app webhook worker (every 60s)
+  evaluate_alert_rules()  ->   poll alert_events WHERE webhook_fired_at IS NULL
+  INSERT alert_events           POST payload to rule.webhook_url (5s timeout)
+  (webhook_fired_at NULL)       UPDATE status + response + webhook_fired_at
+```
+
+The `alert_events` table doubles as a durable delivery queue: a fired event with
+`webhook_fired_at IS NULL` is "pending". The worker runs on a single
+`setInterval(60s)` started after the pools are ready, isolated per-event with
+`Promise.allSettled`, wrapped in try/catch so a bad webhook can never crash the
+Fastify event loop. Delivery is fire-and-forget: success or failure, the row is
+stamped exactly once and never retried.
+
+Why not call the webhook synchronously inside the pg_cron job? Because the DB
+would need outbound HTTP (pg_net), evaluation would block on slow/oﬄine
+endpoints, and a hung webhook could stall the whole evaluation pass. Decoupling
+keeps evaluation fast and deterministic.
+
+### Known limitations (documented future improvements)
+
+- **No retry.** A failed delivery (timeout, 5xx, DNS) is recorded with its
+  status/error and not retried. Retry with backoff (e.g. a `retry_count` +
+  `next_attempt_at` column and a worker that re-queues) is a future improvement.
+- **App-down delivery lag.** If the *app* is down, webhooks queue up in
+  `alert_events` and fire on the next poll after restart — at-least-once-ish on
+  restart, but delayed. **Alert *evaluation* still runs via pg_cron regardless**,
+  so no breach is missed; only the outbound notification is deferred.
+- **https-only.** Webhook URLs must be `https://` (validated on rule creation and
+  re-checked at delivery). Plain `http://` is rejected.
