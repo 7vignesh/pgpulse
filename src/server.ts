@@ -4,6 +4,8 @@ import { registerRateLimit } from './middleware/ratelimit.js';
 import { registerTenantRoutes } from './tenants/routes.js';
 import { registerIngestRoutes } from './ingest/routes.js';
 import { registerQueryRoutes } from './query/routes.js';
+import { registerAlertRoutes } from './alerts/routes.js';
+import { startWebhookWorker } from './alerts/webhook.js';
 import { registerHealthRoute } from './health/route.js';
 import { PoolExhaustedError, closePools } from './db/pool.js';
 
@@ -44,6 +46,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(registerTenantRoutes);
   await app.register(registerIngestRoutes);
   await app.register(registerQueryRoutes);
+  await app.register(registerAlertRoutes);
 
   return app;
 }
@@ -52,9 +55,14 @@ async function main(): Promise<void> {
   const app = await buildServer();
   const port = Number(process.env.PORT ?? 3000);
 
+  // Webhook delivery worker (single setInterval). Only runs in the long-lived
+  // server process, never under tests that import buildServer().
+  const stopWebhookWorker = startWebhookWorker((msg) => app.log.info(msg));
+
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`received ${signal}, shutting down`);
     try {
+      stopWebhookWorker();
       await app.close();
       await closePools();
       process.exit(0);
