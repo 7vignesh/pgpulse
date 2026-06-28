@@ -1,0 +1,34 @@
+-- Query: timeseries_hourly_30d
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:17.557Z
+-- Indexes: WITH
+
+GroupAggregate  (cost=16143.85..18356.40 rows=109958 width=16) (actual time=40.845..53.933 rows=721 loops=1)
+  Group Key: (date_trunc('hour'::text, events.ingested_at))
+  Buffers: shared hit=920
+  ->  Sort  (cost=16143.85..16423.21 rows=111744 width=8) (actual time=40.829..45.957 rows=110933 loops=1)
+        Sort Key: (date_trunc('hour'::text, events.ingested_at))
+        Sort Method: quicksort  Memory: 3073kB
+        Buffers: shared hit=920
+        ->  Append  (cost=0.43..6774.20 rows=111744 width=8) (actual time=0.029..34.896 rows=110933 loops=1)
+              Buffers: shared hit=920
+              ->  Index Only Scan using events_2026_05_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_05 events_1  (cost=0.43..476.67 rows=8544 width=8) (actual time=0.028..3.074 rows=8531 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=74
+              ->  Index Only Scan using events_2026_06_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_06 events_2  (cost=0.43..5734.11 rows=103186 width=8) (actual time=0.023..24.189 rows=102402 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=843
+              ->  Seq Scan on events_2026_07 events_3  (cost=0.00..0.00 rows=1 width=8) (actual time=0.013..0.014 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+              ->  Seq Scan on events_2026_08 events_4  (cost=0.00..0.00 rows=1 width=8) (actual time=0.002..0.002 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+              ->  Index Only Scan using events_default_tenant_id_ingested_at_endpoint_status_code_l_idx on events_default events_5  (cost=0.43..4.70 rows=12 width=8) (actual time=0.021..0.021 rows=0 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=14
+Planning Time: 0.559 ms
+Execution Time: 54.051 ms

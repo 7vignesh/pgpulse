@@ -1,0 +1,32 @@
+-- Query: endpoint_breakdown_7d
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:17.412Z
+-- Indexes: WITH
+
+Sort  (cost=1920.42..1920.44 rows=7 width=60) (actual time=16.531..16.537 rows=6 loops=1)
+  Sort Key: (count(*)) DESC
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=36 read=183
+  ->  HashAggregate  (cost=1920.22..1920.32 rows=7 width=60) (actual time=16.509..16.521 rows=6 loops=1)
+        Group Key: events.endpoint
+        Batches: 1  Memory Usage: 24kB
+        Buffers: shared hit=36 read=183
+        ->  Append  (cost=0.43..1581.89 rows=27066 width=18) (actual time=0.023..8.530 rows=25925 loops=1)
+              Buffers: shared hit=36 read=183
+              Subplans Removed: 1
+              ->  Index Only Scan using events_2026_06_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_06 events_1  (cost=0.43..1437.25 rows=27041 width=18) (actual time=0.022..6.268 rows=25925 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=33 read=183
+              ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=38) (actual time=0.011..0.012 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+              ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=38) (actual time=0.003..0.003 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+              ->  Index Only Scan using events_default_tenant_id_ingested_at_endpoint_status_code_l_idx on events_default events_4  (cost=0.43..4.67 rows=12 width=19) (actual time=0.038..0.038 rows=0 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=23
+Planning Time: 0.601 ms
+Execution Time: 16.625 ms

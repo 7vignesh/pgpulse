@@ -1,0 +1,32 @@
+-- Query: overview_last_24h
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:13.902Z
+-- Indexes: WITHOUT
+
+Finalize Aggregate  (cost=28106.49..28106.52 rows=1 width=80) (actual time=23.844..28.149 rows=1 loops=1)
+  Buffers: shared hit=9444
+  ->  Gather  (cost=28106.26..28106.47 rows=2 width=48) (actual time=23.691..28.128 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=9444
+        ->  Partial Aggregate  (cost=27106.26..27106.27 rows=1 width=48) (actual time=20.855..20.857 rows=1 loops=3)
+              Buffers: shared hit=9444
+              ->  Parallel Append  (cost=0.00..27092.99 rows=1327 width=6) (actual time=4.257..20.673 rows=1203 loops=3)
+                    Buffers: shared hit=9444
+                    Subplans Removed: 1
+                    ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=6) (actual time=0.011..0.011 rows=0 loops=1)
+                          Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+                    ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=6) (actual time=0.003..0.003 rows=0 loops=1)
+                          Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+                    ->  Parallel Index Scan using events_default_pkey on events_default events_4  (cost=0.43..8021.44 rows=7 width=6) (actual time=6.908..6.908 rows=0 loops=1)
+                          Index Cond: (ingested_at > (now() - '24:00:00'::interval))
+                          Filter: (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid)
+                          Buffers: shared hit=1334
+                    ->  Parallel Seq Scan on events_2026_06 events_1  (cost=0.00..11091.17 rows=1315 width=6) (actual time=1.947..18.238 rows=1203 loops=3)
+                          Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+                          Rows Removed by Filter: 118043
+                          Buffers: shared hit=8110
+Planning:
+  Buffers: shared hit=98
+Planning Time: 0.483 ms
+Execution Time: 28.208 ms

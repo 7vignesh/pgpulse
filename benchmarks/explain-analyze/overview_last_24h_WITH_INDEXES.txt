@@ -1,0 +1,26 @@
+-- Query: overview_last_24h
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:17.387Z
+-- Indexes: WITH
+
+Aggregate  (cost=230.93..230.95 rows=1 width=80) (actual time=1.685..1.687 rows=1 loops=1)
+  Buffers: shared hit=1 read=35
+  ->  Append  (cost=0.43..198.44 rows=3248 width=6) (actual time=0.070..1.226 rows=3610 loops=1)
+        Buffers: shared hit=1 read=35
+        Subplans Removed: 1
+        ->  Index Only Scan using events_2026_06_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_06 events_1  (cost=0.43..172.89 rows=3223 width=6) (actual time=0.069..0.890 rows=3610 loops=1)
+              Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+              Heap Fetches: 0
+              Buffers: shared hit=1 read=32
+        ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=6) (actual time=0.005..0.005 rows=0 loops=1)
+              Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+        ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=6) (actual time=0.002..0.002 rows=0 loops=1)
+              Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+        ->  Index Only Scan using events_default_tenant_id_ingested_at_endpoint_status_code_l_idx on events_default events_4  (cost=0.43..4.67 rows=12 width=6) (actual time=0.022..0.023 rows=0 loops=1)
+              Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '24:00:00'::interval)))
+              Heap Fetches: 0
+              Buffers: shared read=3
+Planning:
+  Buffers: shared hit=208 read=10
+Planning Time: 1.242 ms
+Execution Time: 1.753 ms

@@ -1,0 +1,50 @@
+-- Query: error_scan_30d
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:13.995Z
+-- Indexes: WITHOUT
+
+Sort  (cost=32275.18..32275.30 rows=49 width=22) (actual time=40.270..46.493 rows=24 loops=1)
+  Sort Key: (count(*)) DESC
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=15335 read=2547
+  ->  Finalize GroupAggregate  (cost=32261.14..32273.80 rows=49 width=22) (actual time=40.218..46.478 rows=24 loops=1)
+        Group Key: events.endpoint, events.status_code
+        Buffers: shared hit=15335 read=2547
+        ->  Gather Merge  (cost=32261.14..32272.58 rows=98 width=22) (actual time=40.209..46.453 rows=72 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=15335 read=2547
+              ->  Sort  (cost=31261.12..31261.24 rows=49 width=22) (actual time=36.631..36.636 rows=24 loops=3)
+                    Sort Key: events.endpoint, events.status_code
+                    Sort Method: quicksort  Memory: 26kB
+                    Buffers: shared hit=15335 read=2547
+                    Worker 0:  Sort Method: quicksort  Memory: 26kB
+                    Worker 1:  Sort Method: quicksort  Memory: 26kB
+                    ->  Partial HashAggregate  (cost=31259.25..31259.74 rows=49 width=22) (actual time=36.573..36.580 rows=24 loops=3)
+                          Group Key: events.endpoint, events.status_code
+                          Batches: 1  Memory Usage: 24kB
+                          Buffers: shared hit=15305 read=2547
+                          Worker 0:  Batches: 1  Memory Usage: 24kB
+                          Worker 1:  Batches: 1  Memory Usage: 24kB
+                          ->  Parallel Append  (cost=0.00..31181.85 rows=10321 width=14) (actual time=5.270..34.923 rows=7303 loops=3)
+                                Buffers: shared hit=15305 read=2547
+                                ->  Seq Scan on events_2026_07 events_3  (cost=0.00..0.00 rows=1 width=34) (actual time=0.012..0.012 rows=0 loops=1)
+                                      Filter: ((status_code >= 400) AND (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                ->  Seq Scan on events_2026_08 events_4  (cost=0.00..0.00 rows=1 width=34) (actual time=0.009..0.009 rows=0 loops=1)
+                                      Filter: ((status_code >= 400) AND (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                ->  Parallel Index Scan using events_default_pkey on events_default events_5  (cost=0.43..8021.49 rows=1 width=15) (actual time=7.622..7.622 rows=0 loops=1)
+                                      Index Cond: (ingested_at > (now() - '30 days'::interval))
+                                      Filter: ((status_code >= 400) AND (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid))
+                                      Buffers: shared hit=1334
+                                ->  Parallel Seq Scan on events_2026_05 events_1  (cost=0.00..11644.94 rows=713 width=15) (actual time=0.128..16.616 rows=576 loops=3)
+                                      Filter: ((status_code >= 400) AND (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                      Rows Removed by Filter: 114515
+                                      Buffers: shared hit=5861 read=2547
+                                ->  Parallel Seq Scan on events_2026_06 events_2  (cost=0.00..11463.81 rows=9605 width=14) (actual time=4.001..22.804 rows=10090 loops=2)
+                                      Filter: ((status_code >= 400) AND (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                      Rows Removed by Filter: 168780
+                                      Buffers: shared hit=8110
+Planning:
+  Buffers: shared hit=12
+Planning Time: 0.469 ms
+Execution Time: 46.611 ms

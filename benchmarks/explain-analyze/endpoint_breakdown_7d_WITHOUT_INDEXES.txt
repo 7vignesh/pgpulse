@@ -1,0 +1,47 @@
+-- Query: endpoint_breakdown_7d
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:13.942Z
+-- Indexes: WITHOUT
+
+Sort  (cost=28282.78..28282.79 rows=7 width=60) (actual time=28.471..32.840 rows=6 loops=1)
+  Sort Key: (count(*)) DESC
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=9460
+  ->  Finalize GroupAggregate  (cost=28280.80..28282.68 rows=7 width=60) (actual time=28.458..32.834 rows=6 loops=1)
+        Group Key: events.endpoint
+        Buffers: shared hit=9460
+        ->  Gather Merge  (cost=28280.80..28282.43 rows=14 width=60) (actual time=28.431..32.807 rows=18 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=9460
+              ->  Sort  (cost=27280.78..27280.79 rows=7 width=60) (actual time=25.001..25.004 rows=6 loops=3)
+                    Sort Key: events.endpoint
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=9460
+                    Worker 0:  Sort Method: quicksort  Memory: 25kB
+                    Worker 1:  Sort Method: quicksort  Memory: 25kB
+                    ->  Partial HashAggregate  (cost=27280.61..27280.68 rows=7 width=60) (actual time=24.959..24.963 rows=6 loops=3)
+                          Group Key: events.endpoint
+                          Batches: 1  Memory Usage: 24kB
+                          Buffers: shared hit=9444
+                          Worker 0:  Batches: 1  Memory Usage: 24kB
+                          Worker 1:  Batches: 1  Memory Usage: 24kB
+                          ->  Parallel Append  (cost=0.00..27141.86 rows=11100 width=18) (actual time=4.061..22.862 rows=8642 loops=3)
+                                Buffers: shared hit=9444
+                                Subplans Removed: 1
+                                ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=38) (actual time=0.012..0.012 rows=0 loops=1)
+                                      Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                                ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=38) (actual time=0.004..0.004 rows=0 loops=1)
+                                      Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                                ->  Parallel Index Scan using events_default_pkey on events_default events_4  (cost=0.43..8021.44 rows=7 width=19) (actual time=7.128..7.129 rows=0 loops=1)
+                                      Index Cond: (ingested_at > (now() - '7 days'::interval))
+                                      Filter: (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid)
+                                      Buffers: shared hit=1334
+                                ->  Parallel Seq Scan on events_2026_06 events_1  (cost=0.00..11091.17 rows=11088 width=18) (actual time=1.678..19.809 rows=8642 loops=3)
+                                      Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                                      Rows Removed by Filter: 110605
+                                      Buffers: shared hit=8110
+Planning:
+  Buffers: shared hit=26
+Planning Time: 0.281 ms
+Execution Time: 32.905 ms

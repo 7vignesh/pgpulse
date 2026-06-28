@@ -1,0 +1,43 @@
+-- Query: timeseries_hourly_30d
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:14.139Z
+-- Indexes: WITHOUT
+
+Finalize GroupAggregate  (cost=35371.58..48944.80 rows=110969 width=16) (actual time=73.332..80.542 rows=721 loops=1)
+  Group Key: (date_trunc('hour'::text, events.ingested_at))
+  Buffers: shared hit=15353 read=2515
+  ->  Gather Merge  (cost=35371.58..47090.52 rows=93434 width=16) (actual time=73.317..80.266 rows=1498 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=15353 read=2515
+        ->  Partial GroupAggregate  (cost=34371.55..35305.89 rows=46717 width=16) (actual time=65.877..70.075 rows=499 loops=3)
+              Group Key: (date_trunc('hour'::text, events.ingested_at))
+              Buffers: shared hit=15353 read=2515
+              ->  Sort  (cost=34371.55..34488.35 rows=46717 width=8) (actual time=65.861..67.314 rows=36978 loops=3)
+                    Sort Key: (date_trunc('hour'::text, events.ingested_at))
+                    Sort Method: quicksort  Memory: 1537kB
+                    Buffers: shared hit=15353 read=2515
+                    Worker 0:  Sort Method: quicksort  Memory: 1537kB
+                    Worker 1:  Sort Method: quicksort  Memory: 193kB
+                    ->  Parallel Append  (cost=0.00..30748.26 rows=46717 width=8) (actual time=5.108..61.076 rows=36978 loops=3)
+                          Buffers: shared hit=15337 read=2515
+                          ->  Seq Scan on events_2026_07 events_3  (cost=0.00..0.00 rows=1 width=8) (actual time=0.015..0.015 rows=0 loops=1)
+                                Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                          ->  Seq Scan on events_2026_08 events_4  (cost=0.00..0.00 rows=1 width=8) (actual time=0.005..0.005 rows=0 loops=1)
+                                Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                          ->  Parallel Index Scan using events_default_pkey on events_default events_5  (cost=0.43..8021.46 rows=7 width=8) (actual time=9.649..9.650 rows=0 loops=1)
+                                Index Cond: (ingested_at > (now() - '30 days'::interval))
+                                Filter: (tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid)
+                                Buffers: shared hit=1334
+                          ->  Parallel Seq Scan on events_2026_05 events_1  (cost=0.00..11294.21 rows=3572 width=8) (actual time=0.037..24.549 rows=2844 loops=3)
+                                Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                Rows Removed by Filter: 112248
+                                Buffers: shared hit=5893 read=2515
+                          ->  Parallel Seq Scan on events_2026_06 events_2  (cost=0.00..11199.01 rows=43138 width=8) (actual time=2.788..45.159 rows=51201 loops=2)
+                                Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '30 days'::interval)))
+                                Rows Removed by Filter: 127669
+                                Buffers: shared hit=8110
+Planning:
+  Buffers: shared hit=5
+Planning Time: 0.310 ms
+Execution Time: 80.649 ms

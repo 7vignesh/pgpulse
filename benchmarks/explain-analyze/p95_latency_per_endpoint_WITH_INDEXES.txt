@@ -1,0 +1,31 @@
+-- Query: p95_latency_per_endpoint
+-- Tenant: 8112f6b5-7afb-4063-a0dd-1c54ac80cd3a
+-- Run at: 2026-06-28T16:31:17.494Z
+-- Indexes: WITH
+
+GroupAggregate  (cost=3574.52..3845.28 rows=7 width=28) (actual time=29.946..40.981 rows=6 loops=1)
+  Group Key: events.endpoint
+  Buffers: shared hit=219
+  ->  Sort  (cost=3574.52..3642.18 rows=27066 width=16) (actual time=27.957..30.795 rows=25925 loops=1)
+        Sort Key: events.endpoint
+        Sort Method: quicksort  Memory: 1874kB
+        Buffers: shared hit=219
+        ->  Append  (cost=0.43..1581.89 rows=27066 width=16) (actual time=0.034..14.101 rows=25925 loops=1)
+              Buffers: shared hit=219
+              Subplans Removed: 1
+              ->  Index Only Scan using events_2026_06_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_06 events_1  (cost=0.43..1437.25 rows=27041 width=16) (actual time=0.033..9.986 rows=25925 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=216
+              ->  Seq Scan on events_2026_07 events_2  (cost=0.00..0.00 rows=1 width=36) (actual time=0.016..0.017 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+              ->  Seq Scan on events_2026_08 events_3  (cost=0.00..0.00 rows=1 width=36) (actual time=0.002..0.002 rows=0 loops=1)
+                    Filter: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+              ->  Index Only Scan using events_default_tenant_id_ingested_at_endpoint_status_code_l_idx on events_default events_4  (cost=0.43..4.67 rows=12 width=17) (actual time=0.028..0.028 rows=0 loops=1)
+                    Index Cond: ((tenant_id = '8112f6b5-7afb-4063-a0dd-1c54ac80cd3a'::uuid) AND (ingested_at > (now() - '7 days'::interval)))
+                    Heap Fetches: 0
+                    Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=11
+Planning Time: 0.588 ms
+Execution Time: 41.068 ms
