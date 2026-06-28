@@ -12,6 +12,8 @@
     "dev": "tsx watch src/server.ts",
     "migrate": "tsx src/db/migrate.ts up",
     "migrate:status": "tsx src/db/migrate.ts status",
+    "seed": "tsx scripts/seed.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
