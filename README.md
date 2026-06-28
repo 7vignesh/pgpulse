@@ -220,6 +220,25 @@ npm test
 
 Routes are thin (auth + validate + delegate); all logic lives in `*/service.ts`.
 
+### Seed + benchmark
+
+```bash
+# 1M realistic events across 3 tenants, then capture EXPLAIN ANALYZE
+# before/after indexes. Run inside the app container (Linux node_modules),
+# against the primary directly (session mode, not PgBouncer).
+docker compose run --rm --no-deps \
+  -e PRIMARY_DATABASE_URL=postgres://pgpulse:pgpulse_secret@postgres:5432/pgpulse \
+  app npx tsx scripts/seed.ts
+docker compose run --rm --no-deps \
+  -v "$PWD/benchmarks:/app/benchmarks" \
+  -e PRIMARY_DATABASE_URL=postgres://pgpulse:pgpulse_secret@postgres:5432/pgpulse \
+  app npx tsx scripts/benchmark.ts
+```
+
+Locally (no Docker, against a reachable primary) the same scripts are
+`npm run seed` and `npm run benchmark`. Results land in
+[`benchmarks/explain-analyze/`](benchmarks/explain-analyze/).
+
 ## Docs
 
 - [`docs/SCHEMA.md`](docs/SCHEMA.md) — tables, partitioning, every index, MV strategy, RLS
@@ -232,6 +251,7 @@ Routes are thin (auth + validate + delegate); all logic lives in `*/service.ts`.
 ```
 migrations/           sequential raw SQL (tenants, partitions, indexes, MV, cron, alerts)
 src/db/               PgBouncer-aware pools + migration runner
+scripts/              seed.ts (1M events) + benchmark.ts (EXPLAIN ANALYZE capture)
 src/ingest/           POST /v1/events[/batch]  (multi-row INSERT + COPY path)
 src/query/            analytics services + MV-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
