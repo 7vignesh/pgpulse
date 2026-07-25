@@ -101,20 +101,37 @@ async function pingPrimary(): Promise<boolean> {
   }
 }
 
+async function pingReplica(): Promise<boolean> {
+  if (replicaPool === primaryPool) return true;
+  try {
+    await replicaPool.query('SELECT 1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
   app.get('/health', async (_request, reply) => {
-    const [primaryOk, lag, slow] = await Promise.all([
+    const [primaryOk, replicaOk, lag, slow] = await Promise.all([
       pingPrimary(),
+      pingReplica(),
       replicaLag(),
       slowQueries(),
     ]);
 
+    const status = primaryOk && replicaOk ? 'ok' : 'degraded';
+
     const body = {
-      status: primaryOk ? 'ok' : 'degraded',
+      status,
       timestamp: new Date().toISOString(),
       pools: {
         primary: poolStats(primaryPool),
         replica: replicaPool === primaryPool ? 'shared-with-primary' : poolStats(replicaPool),
+      },
+      connectivity: {
+        primary: primaryOk,
+        replica: replicaPool === primaryPool ? 'shared-with-primary' : replicaOk,
       },
       replica_lag: lag,
       slow_queries: slow,
