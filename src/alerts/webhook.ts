@@ -108,7 +108,12 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
     // Timeout / DNS / connection refused etc. Stamp the failure and move on
     // (no infinite retry — documented future improvement).
     const msg = err instanceof Error ? err.message : 'webhook delivery failed';
-    await markDelivered(d.id, null, msg);
+    try {
+      await markDelivered(d.id, null, msg);
+    } catch {
+      // DB unavailable — cannot record the delivery failure. The event will
+      // be retried on the next tick when the DB comes back.
+    }
   } finally {
     clearTimeout(timer);
   }
