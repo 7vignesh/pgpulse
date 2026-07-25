@@ -30,7 +30,7 @@ function parseRange(
 ): TimeRange | null {
   const result = parseRangePure(q.from, q.to);
   if (!result.ok || !result.range) {
-    void reply.code(400).send({ error: result.error });
+    void reply.code(400).send({ error: result.error ?? 'invalid time range' });
     return null;
   }
   return result.range;
