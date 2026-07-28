@@ -99,7 +99,7 @@ export async function withTransaction<T>(
     if (opts.tenantId) {
       // Parameterized SET LOCAL is not allowed; validate + inject safely.
       // tenantId comes from a trusted UUID column, but we still re-validate.
-      if (!/^[0-9a-f-]{36}$/i.test(opts.tenantId)) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opts.tenantId)) {
         throw new Error('invalid tenantId for RLS scope');
       }
       await client.query(
