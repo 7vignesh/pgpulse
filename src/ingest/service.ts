@@ -146,7 +146,7 @@ export async function insertEventsCopy(
               String(e.status_code),
               String(e.latency_ms),
               e.user_agent != null ? esc(e.user_agent) : '\\N',
-              e.ip_address != null ? e.ip_address : '\\N',
+              e.ip_address != null ? esc(e.ip_address) : '\\N',
               esc(JSON.stringify(e.metadata ?? {})),
               e.ingested_at ?? new Date().toISOString(),
             ];
