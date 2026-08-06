@@ -53,7 +53,10 @@ export async function buildServer(): Promise<FastifyInstance> {
 
 async function main(): Promise<void> {
   const app = await buildServer();
-  const port = Number(process.env.PORT ?? 3000);
+  const rawPort = Number(process.env.PORT ?? 3000);
+  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535
+    ? rawPort
+    : 3000;
 
   // Webhook delivery worker (single setInterval). Only runs in the long-lived
   // server process, never under tests that import buildServer().
