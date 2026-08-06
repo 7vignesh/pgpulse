@@ -45,12 +45,8 @@ const rangeSchema = {
 } as const;
 
 export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
-  // Auth applies to every analytics route.
-  app.addHook('preHandler', async (request, reply) => {
-    if (request.url.startsWith('/v1/analytics')) {
-      await authenticate(request, reply);
-    }
-  });
+  // Auth applies to every route in this encapsulated plugin.
+  app.addHook('preHandler', authenticate);
 
   app.get<{ Querystring: RangeQuery }>(
     '/v1/analytics/overview',

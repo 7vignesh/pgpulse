@@ -46,12 +46,8 @@ function isHttpsUrl(value: string): boolean {
 }
 
 export async function registerAlertRoutes(app: FastifyInstance): Promise<void> {
-  // Auth for the whole group.
-  app.addHook('preHandler', async (request, reply) => {
-    if (request.url.startsWith('/v1/alerts')) {
-      await authenticate(request, reply);
-    }
-  });
+  // Auth applies to every route in this encapsulated plugin.
+  app.addHook('preHandler', authenticate);
 
   app.post<{ Body: CreateRuleInput }>(
     '/v1/alerts/rules',
