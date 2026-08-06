@@ -1,4 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import process from 'node:process';
 import { registerRateLimit } from './middleware/ratelimit.js';
 import { registerTenantRoutes } from './tenants/routes.js';
@@ -87,7 +89,8 @@ async function main(): Promise<void> {
 }
 
 // Only auto-start when run directly (not when imported by tests).
-const isMain = process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.js');
-if (isMain) {
+const currentFile = fileURLToPath(import.meta.url);
+const entryFile = process.argv[1] ? resolve(process.argv[1]) : '';
+if (currentFile === entryFile) {
   void main();
 }
