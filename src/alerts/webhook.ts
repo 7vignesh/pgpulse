@@ -93,7 +93,7 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
   try {
     const res = await fetch(d.webhook_url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'user-agent': 'pgpulse-webhook/1.0' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
