@@ -142,9 +142,12 @@ export function startWebhookWorker(
   log: (msg: string) => void = () => {},
 ): () => void {
   // Kick once shortly after start so freshly fired alerts go out quickly,
-  // then settle into the 60s cadence.
+  // then settle into the 60s cadence. unref() so these timers don't keep the
+  // process alive on their own during shutdown.
   const initial = setTimeout(() => void tick(log), 2_000);
+  initial.unref();
   const interval = setInterval(() => void tick(log), POLL_INTERVAL_MS);
+  interval.unref();
   return () => {
     clearTimeout(initial);
     clearInterval(interval);
