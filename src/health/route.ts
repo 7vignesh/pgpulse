@@ -23,6 +23,8 @@ interface SlowQuery {
   total_exec_time: number;
 }
 
+const SLOW_QUERY_LIMIT = 10;
+
 async function replicaLag(): Promise<{
   configured: boolean;
   bytes: number | null;
@@ -69,7 +71,8 @@ async function slowQueries(): Promise<{ available: boolean; rows: SlowQuery[]; n
               ROUND(total_exec_time::numeric, 2) AS total_exec_time
        FROM pg_stat_statements
        ORDER BY mean_exec_time DESC
-       LIMIT 10`,
+       LIMIT $1`,
+      [SLOW_QUERY_LIMIT],
     );
     return {
       available: true,
