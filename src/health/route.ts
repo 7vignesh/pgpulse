@@ -140,6 +140,6 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
       slow_queries: slow,
     };
 
-    return reply.code(primaryOk ? 200 : 503).send(body);
+    return reply.code(status === 'ok' ? 200 : 503).send(body);
   });
 }
