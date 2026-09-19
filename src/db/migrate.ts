@@ -123,6 +123,11 @@ async function status(): Promise<void> {
 
 const cmd = process.argv[2] ?? 'up';
 
+if (cmd !== 'up' && cmd !== 'status') {
+  console.error(`unknown command '${cmd}'. Usage: migrate [up|status]`);
+  process.exit(1);
+}
+
 const run = cmd === 'status' ? status : up;
 run()
   .then(() => process.exit(0))
