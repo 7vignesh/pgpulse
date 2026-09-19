@@ -22,7 +22,7 @@ const { Pool } = pg;
 
 const num = (v: string | undefined, fallback: number): number => {
   const n = v ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : fallback;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
 const baseConfig = {
