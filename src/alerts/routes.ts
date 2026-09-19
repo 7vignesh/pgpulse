@@ -39,7 +39,9 @@ const createRuleSchema = {
 function isHttpsUrl(value: string): boolean {
   try {
     const u = new URL(value);
-    return u.protocol === 'https:';
+    // Reject embedded credentials (https://user:pass@host) to avoid leaking
+    // secrets and SSRF-style abuse via the userinfo component.
+    return u.protocol === 'https:' && u.username === '' && u.password === '';
   } catch {
     return false;
   }
