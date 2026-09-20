@@ -160,8 +160,13 @@ async function main(): Promise<void> {
       }
 
       await client.query('BEGIN');
-      await client.query(insertSql, params);
-      await client.query('COMMIT');
+      try {
+        await client.query(insertSql, params);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      }
 
       inserted += BATCH_SIZE;
       if ((batch + 1) % 100 === 0) {
