@@ -28,7 +28,7 @@ export async function authenticate(
 ): Promise<void> {
   const apiKey = request.headers['x-api-key'];
 
-  if (!apiKey || typeof apiKey !== 'string') {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
     await reply.code(401).send({ error: 'missing x-api-key header' });
     return;
   }
