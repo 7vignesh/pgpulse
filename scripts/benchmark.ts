@@ -178,8 +178,7 @@ async function main(): Promise<void> {
   await client.connect();
 
   try {
-    // Use the first seeded tenant (most recently created "acme" group). Pick
-    // the tenant with the most events so plans are meaningful.
+    // Pick the tenant with the most events so the query plans are meaningful.
     const { rows: trows } = await client.query<{ tenant_id: string }>(
       `SELECT tenant_id FROM events
         GROUP BY tenant_id
