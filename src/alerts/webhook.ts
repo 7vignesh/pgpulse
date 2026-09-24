@@ -82,7 +82,17 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
   };
 
   // Defence in depth: https-only is validated on create, re-check here.
-  if (!d.webhook_url.startsWith('https://')) {
+  // Use URL parsing so the scheme check is case-insensitive and matches the
+  // validation done at rule-creation time (avoids silently dropping a URL
+  // that was accepted on create, e.g. 'HTTPS://...').
+  let parsed: URL;
+  try {
+    parsed = new URL(d.webhook_url);
+  } catch {
+    await markDelivered(d.id, null, 'rejected: webhook_url is not a valid URL');
+    return;
+  }
+  if (parsed.protocol !== 'https:') {
     await markDelivered(d.id, null, 'rejected: webhook_url is not https');
     return;
   }
