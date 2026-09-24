@@ -105,7 +105,7 @@ export async function endpoints(
   tenantId: string,
   range: TimeRange,
   limit: number,
-): Promise<{ source: string; rows: EndpointRow[] }> {
+): Promise<{ source: 'materialized_view' | 'raw'; rows: EndpointRow[] }> {
   const fromMV = servableFromMV(range);
   return scoped(tenantId, async (client) => {
     if (fromMV) {
@@ -170,7 +170,7 @@ export async function latency(
   tenantId: string,
   range: TimeRange,
   endpoint?: string,
-): Promise<{ source: string; rows: LatencyRow[] }> {
+): Promise<{ source: 'materialized_view' | 'raw'; rows: LatencyRow[] }> {
   const fromMV = servableFromMV(range) && !endpoint;
   return scoped(tenantId, async (client) => {
     if (fromMV) {
@@ -262,7 +262,7 @@ export async function timeseries(
   tenantId: string,
   range: TimeRange,
   granularity: 'hour' | 'day',
-): Promise<{ source: string; rows: TimeseriesRow[] }> {
+): Promise<{ source: 'materialized_view' | 'raw'; rows: TimeseriesRow[] }> {
   const fromMV = servableFromMV(range);
   return scoped(tenantId, async (client) => {
     if (fromMV) {
