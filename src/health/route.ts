@@ -95,23 +95,34 @@ async function slowQueries(): Promise<{ available: boolean; rows: SlowQuery[]; n
   }
 }
 
-async function pingPrimary(): Promise<boolean> {
+// Bound each probe with a client-side timeout so an unresponsive (not just
+// down) DB can't hang the health endpoint and stall liveness/readiness probes.
+// A client-side race is used rather than SET statement_timeout because the
+// pools run through PgBouncer in transaction mode, where session-level state
+// like statement_timeout is unsafe (see db/pool.ts).
+const PROBE_TIMEOUT_MS = 2_000;
+
+async function pingPool(pool: typeof primaryPool): Promise<boolean> {
   try {
-    await primaryPool.query('SELECT 1');
+    await Promise.race([
+      pool.query('SELECT 1'),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('probe timed out')), PROBE_TIMEOUT_MS),
+      ),
+    ]);
     return true;
   } catch {
     return false;
   }
 }
 
+async function pingPrimary(): Promise<boolean> {
+  return pingPool(primaryPool);
+}
+
 async function pingReplica(): Promise<boolean> {
   if (replicaPool === primaryPool) return true;
-  try {
-    await replicaPool.query('SELECT 1');
-    return true;
-  } catch {
-    return false;
-  }
+  return pingPool(replicaPool);
 }
 
 export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
