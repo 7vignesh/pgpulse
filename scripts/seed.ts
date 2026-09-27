@@ -13,7 +13,9 @@ const { Client } = pg;
 
 const TOTAL_EVENTS = 1_000_000;
 const BATCH_SIZE = 1000;
-const BATCHES = TOTAL_EVENTS / BATCH_SIZE;
+// Floor so a TOTAL_EVENTS that isn't an exact multiple of BATCH_SIZE doesn't
+// round the loop up and over-insert a full extra batch.
+const BATCHES = Math.floor(TOTAL_EVENTS / BATCH_SIZE);
 
 const TENANT_NAMES = ['acme', 'stripe-clone', 'devtools-co'] as const;
 
