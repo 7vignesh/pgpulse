@@ -84,7 +84,7 @@ export async function insertEventsBatch(
       const tuples: string[] = [];
 
       events.forEach((e, i) => {
-        const base = i * 9;
+        const base = i * COLUMNS.length;
         tuples.push(
           `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, ` +
             `$${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, ` +
