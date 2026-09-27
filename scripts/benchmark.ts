@@ -177,6 +177,17 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString });
   await client.connect();
 
+  // Parse the recreate statements up front so the finally block can restore
+  // the indexes even if the benchmark throws after dropping them.
+  const createStatements = loadIndexCreateStatements();
+  if (createStatements.length !== SECONDARY_INDEXES.length) {
+    await client.end();
+    throw new Error(
+      `expected ${SECONDARY_INDEXES.length} index statements, parsed ${createStatements.length}`,
+    );
+  }
+  let indexesDropped = false;
+
   try {
     // Pick the tenant with the most events so the query plans are meaningful.
     const { rows: trows } = await client.query<{ tenant_id: string }>(
@@ -191,18 +202,12 @@ async function main(): Promise<void> {
     const tenantId = trows[0].tenant_id;
     console.log(`Benchmarking against tenant ${tenantId}\n`);
 
-    const createStatements = loadIndexCreateStatements();
-    if (createStatements.length !== SECONDARY_INDEXES.length) {
-      throw new Error(
-        `expected ${SECONDARY_INDEXES.length} index statements, parsed ${createStatements.length}`,
-      );
-    }
-
     // --- Phase 1: WITHOUT indexes ---
     console.log('Dropping secondary indexes...');
     for (const idx of SECONDARY_INDEXES) {
       await client.query(`DROP INDEX IF EXISTS ${idx}`);
     }
+    indexesDropped = true;
     await client.query('ANALYZE events');
 
     const without: Record<string, Timing> = {};
@@ -218,6 +223,7 @@ async function main(): Promise<void> {
     for (const stmt of createStatements) {
       await client.query(stmt);
     }
+    indexesDropped = false;
     await client.query('ANALYZE events');
 
     const withIdx: Record<string, Timing> = {};
@@ -258,6 +264,23 @@ async function main(): Promise<void> {
 
     console.log(`\nPlans written to ${OUT_DIR}`);
   } finally {
+    // Safety net: if we dropped the indexes but failed before recreating them
+    // (e.g. an EXPLAIN threw), restore them so the DB isn't left degraded.
+    if (indexesDropped) {
+      console.error('\nBenchmark failed after dropping indexes; recreating them...');
+      try {
+        for (const stmt of createStatements) {
+          await client.query(stmt);
+        }
+        console.error('Secondary indexes restored.');
+      } catch (restoreErr) {
+        console.error(
+          `FAILED to restore indexes: ${
+            restoreErr instanceof Error ? restoreErr.message : String(restoreErr)
+          }`,
+        );
+      }
+    }
     await client.end();
   }
 }
