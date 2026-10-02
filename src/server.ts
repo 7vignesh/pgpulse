@@ -66,12 +66,21 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`received ${signal}, shutting down`);
+    // Hard deadline: if a graceful close hangs (e.g. an in-flight query won't
+    // drain), force-exit so orchestrators don't have to escalate to SIGKILL.
+    const forceExit = setTimeout(() => {
+      app.log.error('graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
     try {
       stopWebhookWorker();
       await app.close();
       await closePools();
+      clearTimeout(forceExit);
       process.exit(0);
     } catch (err) {
+      clearTimeout(forceExit);
       app.log.error({ err }, 'error during shutdown');
       process.exit(1);
     }
