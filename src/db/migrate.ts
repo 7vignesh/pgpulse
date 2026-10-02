@@ -69,6 +69,11 @@ async function up(): Promise<void> {
     const applied = await appliedSet(client);
     const migrations = loadMigrations();
 
+    if (migrations.length === 0) {
+      console.warn(`No .sql migration files found in ${MIGRATIONS_DIR}`);
+      return;
+    }
+
     let ran = 0;
     for (const m of migrations) {
       if (applied.has(m.filename)) {
