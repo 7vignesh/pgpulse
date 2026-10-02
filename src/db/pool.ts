@@ -129,8 +129,14 @@ export class PoolExhaustedError extends Error {
 }
 
 export async function closePools(): Promise<void> {
-  await primaryPool.end();
-  if (replicaPool !== primaryPool) {
-    await replicaPool.end();
+  // Close both pools even if one rejects, so a failure ending the primary
+  // doesn't leak the replica pool during shutdown.
+  const results = await Promise.allSettled([
+    primaryPool.end(),
+    replicaPool !== primaryPool ? replicaPool.end() : Promise.resolve(),
+  ]);
+  const failure = results.find((r) => r.status === 'rejected');
+  if (failure && failure.status === 'rejected') {
+    throw failure.reason;
   }
 }
