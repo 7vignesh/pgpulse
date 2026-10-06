@@ -48,6 +48,7 @@ export async function registerIngestRoutes(app: FastifyInstance): Promise<void> 
         body: {
           type: 'object',
           required: ['events'],
+          additionalProperties: false,
           properties: {
             events: {
               type: 'array',
