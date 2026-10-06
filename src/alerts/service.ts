@@ -37,6 +37,12 @@ const RULE_COLUMNS =
   'id, tenant_id, name, metric, operator, threshold, window_minutes, ' +
   'endpoint_filter, webhook_url, enabled, created_at';
 
+// threshold is a NUMERIC column, which pg returns as a string; coerce it back
+// to the number the AlertRule type promises.
+function numifyRule(r: AlertRule): AlertRule {
+  return { ...r, threshold: Number(r.threshold) };
+}
+
 export async function createRule(
   tenantId: string,
   input: CreateRuleInput,
@@ -58,7 +64,7 @@ export async function createRule(
       input.webhook_url,
     ],
   );
-  return rows[0];
+  return numifyRule(rows[0]);
 }
 
 export async function listRules(tenantId: string): Promise<AlertRule[]> {
@@ -69,7 +75,7 @@ export async function listRules(tenantId: string): Promise<AlertRule[]> {
       ORDER BY created_at DESC`,
     [tenantId],
   );
-  return rows;
+  return rows.map(numifyRule);
 }
 
 /**
