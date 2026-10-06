@@ -117,6 +117,10 @@ async function status(): Promise<void> {
     await ensureMigrationsTable(client);
     const applied = await appliedSet(client);
     const migrations = loadMigrations();
+    if (migrations.length === 0) {
+      console.warn(`No .sql migration files found in ${MIGRATIONS_DIR}`);
+      return;
+    }
     console.log('Migration status:');
     for (const m of migrations) {
       console.log(`  [${applied.has(m.filename) ? 'x' : ' '}] ${m.filename}`);
