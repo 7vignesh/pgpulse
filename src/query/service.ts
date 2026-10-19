@@ -208,7 +208,7 @@ export async function latency(
 
 function numifyLatency(r: LatencyRow): LatencyRow {
   return {
-    bucket: r.bucket,
+    bucket: toIso(r.bucket),
     p50_latency_ms: Number(r.p50_latency_ms),
     p95_latency_ms: Number(r.p95_latency_ms),
     p99_latency_ms: Number(r.p99_latency_ms),
@@ -297,8 +297,15 @@ export async function timeseries(
 
 function numifyTs(r: TimeseriesRow): TimeseriesRow {
   return {
-    bucket: r.bucket,
+    bucket: toIso(r.bucket),
     total_requests: Number(r.total_requests),
     error_count: Number(r.error_count),
   };
+}
+
+// Time buckets come back from pg as Date objects (timestamptz columns) even
+// though the row types declare them as string. Normalize to an ISO string so
+// the returned value matches its declared type for non-HTTP callers.
+function toIso(bucket: string | Date): string {
+  return bucket instanceof Date ? bucket.toISOString() : String(bucket);
 }
