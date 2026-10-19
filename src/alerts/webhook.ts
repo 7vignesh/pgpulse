@@ -58,13 +58,17 @@ async function markDelivered(
   status: number | null,
   body: string,
 ): Promise<void> {
+  // Postgres TEXT cannot store NUL (\u0000). A webhook body containing one
+  // would make this UPDATE throw, leaving the event undelivered and retried
+  // every tick (a poison pill). Strip NULs before storing.
+  const safeBody = body.replace(/\u0000/g, '');
   await primaryPool.query(
     `UPDATE alert_events
         SET webhook_status = $2,
             webhook_response = LEFT($3, 500),
             webhook_fired_at = now()
       WHERE id = $1`,
-    [eventId, status, body],
+    [eventId, status, safeBody],
   );
 }
 
