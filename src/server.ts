@@ -40,6 +40,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     if ((err as { validation?: unknown }).validation) {
       return reply.code(400).send({ error: 'validation failed', details: err.message });
     }
+    // Honor explicit client-error status codes (e.g. 404 not-found) instead of
+    // masking them as 500. 5xx still falls through to the generic handler so
+    // internal error detail is never leaked.
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      return reply.code(statusCode).send({ error: err.message });
+    }
     request.log.error({ err }, 'unhandled error');
     return reply.code(500).send({ error: 'internal server error' });
   });
