@@ -91,7 +91,11 @@ async function up(): Promise<void> {
         process.stdout.write('ok\n');
         ran += 1;
       } catch (err) {
-        await client.query('ROLLBACK');
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          /* ignore rollback failure so the original error isn't masked */
+        }
         process.stdout.write('FAILED\n');
         throw new Error(
           `migration ${m.filename} failed: ${
