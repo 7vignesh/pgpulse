@@ -20,6 +20,7 @@ export async function registerTenantRoutes(app: FastifyInstance): Promise<void> 
         body: {
           type: 'object',
           required: ['name'],
+          additionalProperties: false,
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 200 },
             plan: { type: 'string', enum: VALID_PLANS as unknown as string[] },
