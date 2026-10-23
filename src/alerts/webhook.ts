@@ -24,6 +24,11 @@ const POLL_INTERVAL_MS = 60_000;
 const BATCH_LIMIT = 50;
 const WEBHOOK_TIMEOUT_MS = 5_000;
 
+// Guards against overlapping ticks: a slow tick (e.g. many slow webhooks)
+// could still be running when the interval fires again, and the second tick's
+// fetchPending would re-select the same not-yet-marked rows and double-deliver.
+let tickInFlight = false;
+
 interface PendingDelivery {
   id: string;
   rule_id: string;
@@ -134,6 +139,8 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
 }
 
 async function tick(log: (msg: string) => void): Promise<void> {
+  if (tickInFlight) return;
+  tickInFlight = true;
   try {
     const pending = await fetchPending();
     if (pending.length === 0) return;
@@ -146,6 +153,8 @@ async function tick(log: (msg: string) => void): Promise<void> {
         err instanceof Error ? err.message : String(err)
       }`,
     );
+  } finally {
+    tickInFlight = false;
   }
 }
 
