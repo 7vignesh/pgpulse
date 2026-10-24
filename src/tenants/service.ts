@@ -1,4 +1,4 @@
-import { primaryPool, withTransaction } from '../db/pool.js';
+import { primaryPool } from '../db/pool.js';
 
 export interface Tenant {
   id: string;
@@ -39,16 +39,15 @@ export async function getTenant(id: string): Promise<PublicTenant | null> {
 /**
  * Rotate a tenant's API key atomically. The new key is generated server-side
  * via gen_random_bytes so the plaintext only ever exists in the DB + response.
+ * A single UPDATE is already atomic, so no explicit transaction is needed.
  */
 export async function rotateApiKey(id: string): Promise<{ api_key: string } | null> {
-  return withTransaction(primaryPool, async (client) => {
-    const { rows } = await client.query<{ api_key: string }>(
-      `UPDATE tenants
-         SET api_key = encode(gen_random_bytes(32), 'hex')
-       WHERE id = $1
-       RETURNING api_key`,
-      [id],
-    );
-    return rows[0] ?? null;
-  });
+  const { rows } = await primaryPool.query<{ api_key: string }>(
+    `UPDATE tenants
+       SET api_key = encode(gen_random_bytes(32), 'hex')
+     WHERE id = $1
+     RETURNING api_key`,
+    [id],
+  );
+  return rows[0] ?? null;
 }
