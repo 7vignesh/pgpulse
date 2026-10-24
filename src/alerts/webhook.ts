@@ -105,6 +105,13 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
     await markDelivered(d.id, null, 'rejected: webhook_url is not https');
     return;
   }
+  // Also reject embedded credentials (https://user:pass@host), matching the
+  // creation-time check, in case a rule predates that validation or was
+  // inserted directly.
+  if (parsed.username !== '' || parsed.password !== '') {
+    await markDelivered(d.id, null, 'rejected: webhook_url contains credentials');
+    return;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
