@@ -14,7 +14,7 @@ export type { TimeRange } from './range.js';
  *   The `hourly_stats` MV is refreshed hourly. For any time window whose end
  *   is older than the start of the current hour, completed hours can be served
  *   from the MV. Data inside the current (incomplete) hour must come from raw
- *   `events`. queryWindow() decides per request which source(s) to use.
+ *   `events`. servableFromMV() decides per request which source to use.
  *
  * No SELECT * anywhere. Every column is explicit.
  */
