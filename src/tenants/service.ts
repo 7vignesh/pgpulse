@@ -25,7 +25,7 @@ export async function createTenant(
      RETURNING id, name, api_key, plan, created_at`,
     [name, plan],
   );
-  return rows[0];
+  return normalizeTimestamps(rows[0]);
 }
 
 export async function getTenant(id: string): Promise<PublicTenant | null> {
@@ -33,7 +33,16 @@ export async function getTenant(id: string): Promise<PublicTenant | null> {
     `SELECT id, name, plan, created_at FROM tenants WHERE id = $1`,
     [id],
   );
-  return rows[0] ?? null;
+  return rows[0] ? normalizeTimestamps(rows[0]) : null;
+}
+
+// created_at is a timestamptz, which pg returns as a Date object; normalize it
+// to an ISO string so the value matches the declared string type.
+function normalizeTimestamps<T extends { created_at: string }>(row: T): T {
+  const createdAt = row.created_at as unknown;
+  return createdAt instanceof Date
+    ? { ...row, created_at: createdAt.toISOString() }
+    : row;
 }
 
 /**
