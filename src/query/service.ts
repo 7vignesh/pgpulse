@@ -236,7 +236,8 @@ export async function errors(
          AND ingested_at >= $2 AND ingested_at < $3
          AND status_code >= 400
        GROUP BY endpoint, status_code
-       ORDER BY count DESC`,
+       ORDER BY count DESC
+       LIMIT 1000`,
       [tenantId, range.from, range.to],
     );
     return {
