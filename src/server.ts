@@ -22,7 +22,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       // Don't log credentials.
-      redact: ['req.headers["x-api-key"]', 'req.headers.authorization'],
+      redact: ['req.headers["x-api-key"]', 'req.headers.authorization', 'req.headers.cookie'],
     },
     // Trust proxy so req.ip reflects X-Forwarded-For behind PgBouncer/LB.
     trustProxy: true,
