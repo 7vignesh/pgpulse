@@ -23,6 +23,9 @@ import { primaryPool } from '../db/pool.js';
 const POLL_INTERVAL_MS = 60_000;
 const BATCH_LIMIT = 50;
 const WEBHOOK_TIMEOUT_MS = 5_000;
+// Only the first slice of a webhook response is stored; bound it client-side
+// so we don't carry a huge string around (the SQL LEFT is belt-and-suspenders).
+const MAX_STORED_RESPONSE = 500;
 
 // Guards against overlapping ticks: a slow tick (e.g. many slow webhooks)
 // could still be running when the interval fires again, and the second tick's
@@ -125,7 +128,7 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
     });
     let text = '';
     try {
-      text = await res.text();
+      text = (await res.text()).slice(0, MAX_STORED_RESPONSE);
     } catch {
       text = '';
     }
