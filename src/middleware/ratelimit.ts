@@ -20,6 +20,11 @@ function envInt(key: string, fallback: number): number {
 
 export async function registerRateLimit(app: FastifyInstance): Promise<void> {
   await app.register(rateLimit, {
+    // Run at preHandler, after route authentication has populated req.tenant,
+    // so keyGenerator can actually key per tenant. The default onRequest hook
+    // fires before auth, when req.tenant is still undefined, which would make
+    // every request fall back to IP keying despite the per-tenant intent.
+    hook: 'preHandler',
     max: envInt('RATE_LIMIT_MAX', 1000),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
     keyGenerator: (req) => req.tenant?.id ?? req.ip,
