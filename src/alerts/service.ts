@@ -123,5 +123,13 @@ export async function listEvents(
     observed_value: Number(r.observed_value),
     threshold: Number(r.threshold),
     webhook_status: r.webhook_status === null ? null : Number(r.webhook_status),
+    // timestamptz columns come back as Date objects; normalize to ISO strings
+    // so the values match their declared string type for non-HTTP callers.
+    fired_at: toIso(r.fired_at),
+    webhook_fired_at: r.webhook_fired_at === null ? null : toIso(r.webhook_fired_at),
   }));
+}
+
+function toIso(ts: string | Date): string {
+  return ts instanceof Date ? ts.toISOString() : String(ts);
 }
