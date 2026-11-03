@@ -71,7 +71,10 @@ async function main(): Promise<void> {
   // server process, never under tests that import buildServer().
   const stopWebhookWorker = startWebhookWorker((msg) => app.log.info(msg));
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     app.log.info(`received ${signal}, shutting down`);
     // Hard deadline: if a graceful close hangs (e.g. an in-flight query won't
     // drain), force-exit so orchestrators don't have to escalate to SIGKILL.
