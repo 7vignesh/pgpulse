@@ -81,6 +81,7 @@ async function markDelivered(
 }
 
 async function deliverOne(d: PendingDelivery): Promise<void> {
+  const firedAt = d.fired_at as unknown;
   const payload = {
     alert_rule_id: d.rule_id,
     rule_name: d.rule_name,
@@ -90,7 +91,9 @@ async function deliverOne(d: PendingDelivery): Promise<void> {
     threshold: Number(d.threshold),
     operator: d.operator,
     endpoint: d.endpoint,
-    fired_at: d.fired_at,
+    // fired_at is a timestamptz, returned by pg as a Date; emit an explicit ISO
+    // string rather than relying on implicit JSON.stringify Date coercion.
+    fired_at: firedAt instanceof Date ? firedAt.toISOString() : String(firedAt),
   };
 
   // Defence in depth: https-only is validated on create, re-check here.
