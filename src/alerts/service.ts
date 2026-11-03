@@ -37,10 +37,16 @@ const RULE_COLUMNS =
   'id, tenant_id, name, metric, operator, threshold, window_minutes, ' +
   'endpoint_filter, webhook_url, enabled, created_at';
 
-// threshold is a NUMERIC column, which pg returns as a string; coerce it back
-// to the number the AlertRule type promises.
+// threshold is a NUMERIC column (pg returns it as a string) and created_at is
+// a timestamptz (pg returns it as a Date); coerce both back to the types the
+// AlertRule interface promises.
 function numifyRule(r: AlertRule): AlertRule {
-  return { ...r, threshold: Number(r.threshold) };
+  const createdAt = r.created_at as unknown;
+  return {
+    ...r,
+    threshold: Number(r.threshold),
+    created_at: createdAt instanceof Date ? createdAt.toISOString() : String(createdAt),
+  };
 }
 
 export async function createRule(
