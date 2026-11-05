@@ -5,10 +5,16 @@ import process from 'node:process';
 /**
  * Per-tenant rate limiting.
  *
- * Keyed by authenticated tenant id when present (so limits are per customer),
- * falling back to client IP for unauthenticated routes. In-memory store is
- * fine for a single app instance; swap to the Redis store for multi-instance
- * deployments (see @fastify/rate-limit docs).
+ * Keyed by the x-api-key header when present (so limits are per customer),
+ * falling back to client IP for unauthenticated requests. The header is used
+ * rather than req.tenant because the tenant is only resolved by a route-level
+ * authenticate preHandler, which Fastify runs AFTER plugin hooks (route hooks
+ * execute last in their category). Keying off req.tenant would therefore see
+ * it undefined and silently fall back to IP. The header is available at every
+ * hook stage, so keying is stable regardless of hook ordering.
+ *
+ * In-memory store is fine for a single app instance; swap to the Redis store
+ * for multi-instance deployments (see @fastify/rate-limit docs).
  */
 
 function envInt(key: string, fallback: number): number {
@@ -20,14 +26,12 @@ function envInt(key: string, fallback: number): number {
 
 export async function registerRateLimit(app: FastifyInstance): Promise<void> {
   await app.register(rateLimit, {
-    // Run at preHandler, after route authentication has populated req.tenant,
-    // so keyGenerator can actually key per tenant. The default onRequest hook
-    // fires before auth, when req.tenant is still undefined, which would make
-    // every request fall back to IP keying despite the per-tenant intent.
-    hook: 'preHandler',
     max: envInt('RATE_LIMIT_MAX', 1000),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
-    keyGenerator: (req) => req.tenant?.id ?? req.ip,
+    keyGenerator: (req) => {
+      const apiKey = req.headers['x-api-key'];
+      return typeof apiKey === 'string' && apiKey.trim() !== '' ? apiKey : req.ip;
+    },
     errorResponseBuilder: (_req, context) => ({
       error: 'rate limit exceeded',
       max: context.max,
