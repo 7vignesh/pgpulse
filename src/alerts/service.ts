@@ -66,7 +66,12 @@ export async function createRule(
       input.operator,
       input.threshold,
       input.window_minutes,
-      input.endpoint_filter ?? null,
+      // Treat empty/whitespace-only as "all endpoints" (NULL). The DB function
+      // matches endpoint = endpoint_filter, so storing '' would create a rule
+      // that never fires instead of matching every endpoint.
+      input.endpoint_filter && input.endpoint_filter.trim() !== ''
+        ? input.endpoint_filter
+        : null,
       input.webhook_url,
     ],
   );
