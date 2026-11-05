@@ -95,8 +95,11 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const range = parseRange(request.query, reply);
       if (!range) return;
+      // Treat an empty endpoint param as "all endpoints" rather than filtering
+      // on endpoint = '' (which would match nothing).
+      const endpoint = request.query.endpoint?.trim() || undefined;
       return reply.send(
-        await latency(request.tenant!.id, range, request.query.endpoint),
+        await latency(request.tenant!.id, range, endpoint),
       );
     },
   );
