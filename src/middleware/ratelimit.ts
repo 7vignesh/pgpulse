@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import process from 'node:process';
+import { parsePositiveInt } from './config.js';
 
 /**
  * Per-tenant rate limiting.
@@ -18,10 +19,7 @@ import process from 'node:process';
  */
 
 function envInt(key: string, fallback: number): number {
-  const raw = process.env[key];
-  if (!raw) return fallback;
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : fallback;
+  return parsePositiveInt(process.env[key], fallback);
 }
 
 export async function registerRateLimit(app: FastifyInstance): Promise<void> {
