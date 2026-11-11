@@ -7,6 +7,7 @@ import {
   listEvents,
   type CreateRuleInput,
 } from './service.js';
+import { isHttpsUrl } from './validation.js';
 
 /**
  * Alert routes. All require x-api-key and are tenant-scoped: every service
@@ -34,18 +35,6 @@ const createRuleSchema = {
     webhook_url: { type: 'string', maxLength: 2048, format: 'uri' },
   },
 } as const;
-
-/** Strict https-only URL validation (format:uri is permissive). */
-function isHttpsUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    // Reject embedded credentials (https://user:pass@host) to avoid leaking
-    // secrets and SSRF-style abuse via the userinfo component.
-    return u.protocol === 'https:' && u.username === '' && u.password === '';
-  } catch {
-    return false;
-  }
-}
 
 export async function registerAlertRoutes(app: FastifyInstance): Promise<void> {
   // Auth applies to every route in this encapsulated plugin.
