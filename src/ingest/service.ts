@@ -2,6 +2,7 @@ import { from as copyFrom } from 'pg-copy-streams';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { primaryPool, withTransaction } from '../db/pool.js';
+import { escCopyText as esc } from './copy-format.js';
 
 /**
  * Ingest service. Writes go to the primary via PgBouncer. Every insert runs
@@ -160,9 +161,4 @@ export async function insertEventsCopy(
     },
     { tenantId },
   );
-}
-
-// Escape tabs/newlines/backslashes for COPY text format.
-function esc(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\t/g, '\\t').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
 }
