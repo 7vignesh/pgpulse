@@ -1,10 +1,13 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { authenticate } from '../middleware/auth.js';
-import { insertEvent, insertEventsBatch, type EventInput } from './service.js';
+import { enqueueEvents, type IngestItem } from './pipeline.js';
+import { findEventProblem } from './event-checks.js';
+import type { EventInput } from './service.js';
 
 /**
- * Ingest routes. Auth + validation in the route; the actual write logic lives
- * in the service. All routes require x-api-key and are tenant-scoped.
+ * Ingest routes. Auth + validation in the route; events are handed to the
+ * buffered pipeline and acknowledged with 202 (accepted, not yet committed).
+ * All routes require x-api-key and are tenant-scoped.
  */
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -22,25 +25,65 @@ const eventSchema = {
     ip_address: { type: 'string', maxLength: 45, nullable: true },
     metadata: { type: 'object', nullable: true },
     ingested_at: { type: 'string', format: 'date-time', nullable: true },
+    idempotency_key: { type: 'string', minLength: 1, maxLength: 255 },
   },
 } as const;
 
+type EventBody = EventInput & { idempotency_key?: string };
+
+function toItem(body: EventBody): IngestItem {
+  const { idempotency_key, ...event } = body;
+  return { event, idempotencyKey: idempotency_key ?? null };
+}
+
+async function accept(
+  reply: FastifyReply,
+  tenantId: string,
+  bodies: EventBody[],
+): Promise<FastifyReply> {
+  for (const b of bodies) {
+    const problem = findEventProblem(b);
+    if (problem) return reply.code(400).send({ error: 'validation failed', details: problem });
+  }
+  const res = enqueueEvents(tenantId, bodies.map(toItem));
+  if (!res.ok) {
+    return reply
+      .code(429)
+      .header('Retry-After', String(res.retryAfterSec))
+      .send({
+        error:
+          res.reason === 'buffer_full'
+            ? 'ingest buffer near capacity, retry later'
+            : 'tenant ingest quota exceeded, retry later',
+        retry_after_sec: res.retryAfterSec,
+      });
+  }
+  return reply.code(202).send({ accepted: bodies.length });
+}
+
 export async function registerIngestRoutes(app: FastifyInstance): Promise<void> {
-  // Single event.
-  app.post<{ Body: EventInput }>(
+  // Single event. The Idempotency-Key header is an alternative to the body field.
+  app.post<{ Body: EventBody }>(
     '/v1/events',
     {
       preHandler: authenticate,
       schema: { body: eventSchema },
     },
     async (request, reply) => {
-      const { id } = await insertEvent(request.tenant!.id, request.body);
-      return reply.code(201).send({ id });
+      const header = request.headers['idempotency-key'];
+      const body: EventBody = { ...request.body };
+      if (body.idempotency_key === undefined && typeof header === 'string' && header !== '') {
+        if (header.length > 255) {
+          return reply.code(400).send({ error: 'Idempotency-Key must be at most 255 characters' });
+        }
+        body.idempotency_key = header;
+      }
+      return accept(reply, request.tenant!.id, [body]);
     },
   );
 
-  // Batch: up to 1000 events in a single transaction.
-  app.post<{ Body: { events: EventInput[] } }>(
+  // Batch: up to 1000 events per request.
+  app.post<{ Body: { events: EventBody[] } }>(
     '/v1/events/batch',
     {
       preHandler: authenticate,
@@ -60,12 +103,6 @@ export async function registerIngestRoutes(app: FastifyInstance): Promise<void> 
         },
       },
     },
-    async (request, reply) => {
-      const { inserted } = await insertEventsBatch(
-        request.tenant!.id,
-        request.body.events,
-      );
-      return reply.code(201).send({ inserted });
-    },
+    async (request, reply) => accept(reply, request.tenant!.id, request.body.events),
   );
 }

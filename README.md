@@ -72,7 +72,10 @@ app.use((req, res, next) => {
 ```
 
 For high traffic, buffer events and send them in bulk to `/v1/events/batch`
-(up to 1000 per request, inserted in one transaction) instead of one at a time.
+(up to 1000 per request) instead of one at a time. Ingest is asynchronous: the
+API answers `202 Accepted` once events are in the in-memory buffer, and a
+background flush writes them with binary `COPY`. See
+[Buffered ingest](#buffered-ingest).
 
 **3. Query your analytics** whenever you want insight directly, on a
 schedule, or from a dashboard you build. See the analytics calls under
@@ -140,7 +143,7 @@ curl -s -XPOST localhost:3000/v1/events -H "x-api-key: $KEY" \
   -H 'content-type: application/json' \
   -d '{"endpoint":"/api/login","method":"POST","status_code":200,"latency_ms":42}'
 
-# batch (up to 1000, single transaction)
+# batch (up to 1000; add "idempotency_key" per event to make retries safe)
 curl -s -XPOST localhost:3000/v1/events/batch -H "x-api-key: $KEY" \
   -H 'content-type: application/json' \
   -d '{"events":[{"endpoint":"/x","method":"GET","status_code":500,"latency_ms":9}]}'
@@ -160,7 +163,7 @@ curl -s "localhost:3000/v1/analytics/timeseries?granularity=hour" -H "x-api-key:
 | GET  | `/v1/tenants/:id` | admin* | tenant info (no key) |
 | POST | `/v1/tenants/:id/rotate-key` | admin* | rotate `api_key` |
 | POST | `/v1/events` | x-api-key | single event |
-| POST | `/v1/events/batch` | x-api-key | up to 1000, one transaction |
+| POST | `/v1/events/batch` | x-api-key | up to 1000, buffered, 202 Accepted |
 | GET  | `/v1/analytics/overview` | x-api-key | totals, error rate, avg latency |
 | GET  | `/v1/analytics/endpoints` | x-api-key | per-endpoint, sorted by count |
 | GET  | `/v1/analytics/latency` | x-api-key | p50/p95/p99 over time |
@@ -252,7 +255,7 @@ Locally (no Docker, against a reachable primary) the same scripts are
 migrations/           sequential raw SQL (tenants, partitions, indexes, MV, cron, alerts)
 src/db/               PgBouncer-aware pools + migration runner
 scripts/              seed.ts (1M events) + benchmark.ts (EXPLAIN ANALYZE capture)
-src/ingest/           POST /v1/events[/batch]  (multi-row INSERT + COPY path)
+src/ingest/           POST /v1/events[/batch]  (ring buffer -> binary COPY, token buckets)
 src/query/            analytics services + MV-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
 src/alerts/           alert rules/events services, routes, webhook delivery worker
@@ -260,3 +263,24 @@ src/middleware/       api-key auth, per-tenant rate limiting
 src/health/           /health: pool stats, replica lag, pg_stat_statements
 docker/               primary (pg_cron image + conf), replica, pgbouncer
 ```
+
+## Buffered ingest
+
+`POST /v1/events` and `/v1/events/batch` put events into a bounded in-memory
+ring buffer and return `202`. A flush runs when `INGEST_BATCH_SIZE` events are
+buffered or every `INGEST_FLUSH_INTERVAL_MS`, whichever comes first. Each flush
+opens one transaction per tenant, loads the rows into a temp table with binary
+`COPY`, and inserts them into `events`. This runs on a single backend inside one
+transaction, so it works through PgBouncer in transaction mode.
+
+- **Idempotency:** send `idempotency_key` on an event (or an `Idempotency-Key`
+  header on `/v1/events`). A repeated key for the same tenant is stored once.
+  Keys are remembered for 7 days (`ingest_keys`, swept by pg_cron).
+- **Backpressure:** each tenant has a token bucket (`INGEST_TENANT_RATE` events/s,
+  `INGEST_TENANT_BURST`). A request that exceeds it, or arrives while the buffer
+  is at least 85% full, gets `429 Too Many Requests` with a `Retry-After` header.
+- **Shutdown:** on SIGTERM the server stops accepting requests and drains the
+  buffer before closing the database pools.
+- **Durability trade-off:** a `202` means "buffered", not "committed". A hard
+  crash (SIGKILL, power loss) loses up to `INGEST_FLUSH_INTERVAL_MS` of events.
+  Events whose write fails are retried up to 3 times and then dropped (logged).

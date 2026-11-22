@@ -9,6 +9,7 @@ import { registerQueryRoutes } from './query/routes.js';
 import { registerAlertRoutes } from './alerts/routes.js';
 import { startWebhookWorker } from './alerts/webhook.js';
 import { registerHealthRoute } from './health/route.js';
+import { startIngest, stopIngest } from './ingest/pipeline.js';
 import { PoolExhaustedError, closePools } from './db/pool.js';
 
 /**
@@ -29,6 +30,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await registerRateLimit(app);
+
+  // Buffered ingest: start once the app is ready; on close (SIGTERM path and
+  // tests) the server has stopped accepting requests, so drain what is buffered
+  // before the caller closes the DB pools.
+  app.addHook('onReady', async () => startIngest((msg) => app.log.info(msg)));
+  app.addHook('onClose', async () => stopIngest());
 
   // Map known error types to clean HTTP responses.
   app.setErrorHandler((err, request, reply) => {
