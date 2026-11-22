@@ -105,6 +105,17 @@ d('integration: ingest + analytics', () => {
     await flushIngest();
   });
 
+  it('rejects an ingested_at the partitions cannot hold (no DEFAULT partition)', async () => {
+    const send = (ingested_at: string) =>
+      request(app.server)
+        .post('/v1/events')
+        .set('x-api-key', apiKey)
+        .send({ endpoint: '/x', method: 'GET', status_code: 200, latency_ms: 1, ingested_at });
+    expect((await send('2001-01-01T00:00:00Z')).status).toBe(400);
+    expect((await send(new Date(Date.now() + 30 * 86_400_000).toISOString())).status).toBe(400);
+    expect((await send(new Date().toISOString())).status).toBe(202);
+  });
+
   it('returns an overview scoped to the tenant', async () => {
     const res = await request(app.server)
       .get('/v1/analytics/overview')

@@ -115,52 +115,71 @@ rollups and raw events.
 
 ---
 
-## Partition maintenance
+## Partition lifecycle
 
-### Adding future partitions
+`events` is RANGE-partitioned on `ingested_at`. Migration `010` and the
+partition manager (`src/partitions/manager.ts`) keep daily partitions ahead of
+ingest, and move expired ones to cold storage.
 
-- Built-in: `create_events_partition(date)` + the daily `create-next-partition`
-  pg_cron job keep one month ahead of ingest.
-- The `DEFAULT` partition is a safety net; if rows land there it means the
-  maintenance job fell behind. Migrating them out:
-
-  ```sql
-  -- create the proper partition, then move misrouted rows
-  SELECT create_events_partition('2026-09-01');
-  WITH moved AS (
-    DELETE FROM events_default
-    WHERE ingested_at >= '2026-09-01' AND ingested_at < '2026-10-01'
-    RETURNING *
-  )
-  INSERT INTO events SELECT * FROM moved;
-  ```
-
-### Production: pg_partman
-
-For real deployments, replace the hand-rolled helper + cron job with
-**pg_partman**, which automates rolling creation and retention:
-
-```sql
-CREATE EXTENSION pg_partman;
-SELECT partman.create_parent(
-  p_parent_table => 'public.events',
-  p_control      => 'ingested_at',
-  p_type         => 'native',
-  p_interval     => '1 month',
-  p_premake      => 3            -- keep 3 months provisioned ahead
-);
--- retention: drop partitions older than 12 months
-UPDATE partman.part_config
-   SET retention = '12 months', retention_keep_table = false
- WHERE parent_table = 'public.events';
--- run partman.run_maintenance_proc() from pg_cron
+```
+every PARTITION_INTERVAL_MS (1h), one instance at a time (pg_try_advisory_lock):
+  1. ensure_events_daily_partitions(PARTITION_AHEAD_DAYS=7)   today .. today+7
+  2. for each partition that ended before now - PARTITION_RETENTION_DAYS (90):
+       detaching  ALTER TABLE events DETACH PARTITION p CONCURRENTLY  (or FINALIZE)
+       detached   export to GZIP Parquet -> upload to S3/MinIO
+       verified   object exists, size matches upload, Parquet footer row count
+                  == count(*) of the detached table
+       dropped    DROP TABLE p      (only after the checks above passed)
 ```
 
-### Retention
+State lives in `partition_archive_log`, so every step is resumable: if the
+upload fails, the verification fails, or the process dies, the table stays
+detached and the next run continues from where it stopped. A partition is only
+dropped by the run that has just verified it.
 
-Migration `005` includes a commented `drop-old-partitions` cron template.
-Dropping a monthly partition is `O(1)` and reclaims storage instantly — the
-core operational payoff of RANGE partitioning.
+### Why these choices
+
+- **`DETACH ... CONCURRENTLY`.** A plain `DETACH` takes ACCESS EXCLUSIVE on
+  `events` and queues behind any long reader, and then every insert queues
+  behind it. The concurrent form waits only on the partition. The tests hold a
+  reader on the old partition for 1.5s: inserts keep flowing with CONCURRENTLY
+  and stop completely with a plain DETACH. It cannot run in a transaction block,
+  so the manager uses a direct `ADMIN_DATABASE_URL` session (not PgBouncer, not
+  the migration runner).
+- **No DEFAULT partition.** Postgres refuses `DETACH ... CONCURRENTLY` while a
+  default partition exists, so migration `010` retires `events_default` (moving
+  any rows into daily partitions). The consequence: an insert with an
+  `ingested_at` outside the pre-created window now fails. The API therefore
+  rejects a client-supplied `ingested_at` older than the retention cutoff or
+  beyond today + 7 days with a 400, and `seed.ts` backfills its 90 days first.
+- **`ATTACH PARTITION` for creation.** Daily partitions are built as a plain table
+  plus `ATTACH`, which takes a weaker lock on `events` than `CREATE TABLE ...
+  PARTITION OF`, with a 5s `lock_timeout` so it gives up instead of queueing.
+- **pg_cron safety net.** `ensure_events_daily_partitions(7)` also runs hourly
+  from pg_cron, so ingest keeps working if the app is down for days. Only
+  creation is in SQL; archival needs the app (S3 and Parquet).
+- **Parquet.** Written with `hyparquet-writer` (pure JS, no native build), GZIP,
+  one row group per 50k-row cursor chunk so memory stays bounded. Timestamps keep
+  microsecond precision, `id` stays INT64, `tenant_id` is a UUID. Layout:
+  `s3://<bucket>/<S3_PREFIX>/events/dt=YYYY-MM-DD/<partition>.parquet`, readable by
+  DuckDB, Spark, Athena.
+- **Monthly and daily partitions coexist.** Existing monthly partitions stay; the
+  manager only creates a daily partition for a day no existing partition covers.
+  A monthly partition is archived as one file once its whole month is past
+  retention.
+
+### Limitations
+
+- Archival needs `S3_BUCKET`. Without it partitions are still created but nothing
+  is detached or dropped (disk grows), and the manager says so in the log.
+- The archive is not queryable through `/v1/analytics`; it is cold storage.
+  Restoring means reading the Parquet back and attaching a table.
+- A tenant deleted before its partition is archived is archived with its rows,
+  and a restore must handle the missing `tenants` row.
+- The export runs on the app host and writes a temp file the size of the
+  compressed partition.
+- Rollup tables are kept regardless of partition retention, so long-range
+  dashboards stay available after raw rows are archived.
 
 ### When a partition gets too large (sub-partitioning)
 

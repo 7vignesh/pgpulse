@@ -3,6 +3,8 @@ import { authenticate } from '../middleware/auth.js';
 import { enqueueEvents, type IngestItem } from './pipeline.js';
 import { findEventProblem } from './event-checks.js';
 import type { EventInput } from './service.js';
+import { ingestWindow } from '../partitions/plan.js';
+import { aheadDays, retentionDays } from '../partitions/config.js';
 
 /**
  * Ingest routes. Auth + validation in the route; events are handed to the
@@ -29,6 +31,23 @@ const eventSchema = {
   },
 } as const;
 
+/**
+ * events has no DEFAULT partition (DETACH ... CONCURRENTLY forbids one), so a
+ * client-supplied ingested_at outside the pre-created window would fail the
+ * INSERT with a 500. Reject it up front with a 400 instead.
+ */
+function timestampProblem(events: EventInput[]): string | null {
+  const { min, max } = ingestWindow(new Date(), retentionDays(), aheadDays());
+  for (const e of events) {
+    if (e.ingested_at == null) continue;
+    const t = new Date(e.ingested_at);
+    if (Number.isNaN(t.getTime()) || t < min || t >= max) {
+      return `ingested_at must be between ${min.toISOString()} and ${max.toISOString()}`;
+    }
+  }
+  return null;
+}
+
 type EventBody = EventInput & { idempotency_key?: string };
 
 function toItem(body: EventBody): IngestItem {
@@ -45,6 +64,10 @@ async function accept(
     const problem = findEventProblem(b);
     if (problem) return reply.code(400).send({ error: 'validation failed', details: problem });
   }
+  // Checked before buffering: an event the partitions cannot hold would fail
+  // its whole tenant batch at flush time and take valid events down with it.
+  const window = timestampProblem(bodies);
+  if (window) return reply.code(400).send({ error: 'validation failed', details: window });
   const res = enqueueEvents(tenantId, bodies.map(toItem));
   if (!res.ok) {
     return reply

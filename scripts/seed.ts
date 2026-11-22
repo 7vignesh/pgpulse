@@ -117,6 +117,10 @@ async function main(): Promise<void> {
   const start = Date.now();
 
   try {
+    // Events are spread over the last 90 days. There is no DEFAULT partition, so
+    // make sure daily partitions exist for that whole span first.
+    await client.query('SELECT ensure_events_daily_partitions(7, 91)');
+
     // Create 3 fresh tenants (do not hardcode UUIDs).
     const tenantIds: string[] = [];
     for (const name of TENANT_NAMES) {
