@@ -9,8 +9,8 @@ import type { FastifyInstance } from 'fastify';
  * migrations applied (same setup as integration.test.ts). Skips otherwise.
  *
  * Covers: rule CRUD + tenant isolation, validation (https-only, enums),
- * the in-DB evaluate_alert_rules() function firing on a breached threshold,
- * cooldown, and the alert_events listing.
+ * the evaluator firing on a breached threshold (and not re-firing), and the
+ * alert_events listing.
  */
 
 const { Client } = pg;
@@ -32,6 +32,9 @@ async function dbReachable(): Promise<boolean> {
 
 const reachable = await dbReachable();
 const d = reachable ? describe : describe.skip;
+
+const rulesDefaults = (r: { required_consecutive_breaches: number; recovery_evaluations: number }): boolean =>
+  r.required_consecutive_breaches === 1 && r.recovery_evaluations === 1;
 
 d('integration: alert system', () => {
   let app: FastifyInstance;
@@ -127,47 +130,67 @@ d('integration: alert system', () => {
     expect(otherList.body.rules.length).toBe(0);
   });
 
-  it('evaluate_alert_rules() fires when the threshold is breached', async () => {
-    // Ingest 10 events on /api/checkout, 6 of them errors => 60% error rate > 5.
-    const events = Array.from({ length: 10 }, (_, i) => ({
-      endpoint: '/api/checkout',
-      method: 'POST' as const,
-      status_code: i < 6 ? 500 : 200,
-      latency_ms: 20,
-    }));
-    await request(app.server)
-      .post('/v1/events/batch')
-      .set('x-api-key', apiKey)
-      .send({ events });
-
-    const { flushIngest } = await import('../src/ingest/pipeline.js');
-    await flushIngest();
-
-    const { rows } = await admin.query<{ rules_evaluated: number; rules_fired: number }>(
-      'SELECT * FROM evaluate_alert_rules()',
+  it('evaluator fires when the threshold is breached, and does not re-fire', async () => {
+    // 10 events on /api/checkout, 6 errors => 60% error rate > 5. Inserted with
+    // the admin connection (superuser, bypasses RLS) so this test does not
+    // depend on how the HTTP ingest path commits.
+    await admin.query(
+      `INSERT INTO events (tenant_id, endpoint, method, status_code, latency_ms)
+       SELECT $1, '/api/checkout', 'POST', CASE WHEN g <= 6 THEN 500 ELSE 200 END, 20
+         FROM generate_series(1, 10) g`,
+      [tenantId],
     );
-    expect(Number(rows[0].rules_fired)).toBeGreaterThanOrEqual(1);
+    await admin.query('UPDATE alert_rules SET next_eval_at = now() WHERE id = $1', [ruleId]);
 
-    // an alert_event now exists for our rule
+    const { evaluateDueRules, evaluatorConfigFromEnv } = await import('../src/alerts/evaluator.js');
+    const { primaryPool } = await import('../src/db/pool.js');
+    const cfg = evaluatorConfigFromEnv('itest-eval');
+    const r1 = await evaluateDueRules(primaryPool, cfg);
+    expect(r1.fired).toBeGreaterThanOrEqual(1);
+
     const ev = await admin.query(
-      'SELECT observed_value, threshold FROM alert_events WHERE rule_id = $1',
+      "SELECT observed_value, threshold FROM alert_events WHERE rule_id = $1 AND event_type = 'FIRING'",
       [ruleId],
     );
-    expect(ev.rows.length).toBeGreaterThanOrEqual(1);
+    expect(ev.rows.length).toBe(1);
     expect(Number(ev.rows[0].observed_value)).toBeGreaterThan(5);
+
+    // Already FIRING: a second evaluation stays FIRING and emits nothing new.
+    await admin.query('UPDATE alert_rules SET next_eval_at = now() WHERE id = $1', [ruleId]);
+    await evaluateDueRules(primaryPool, cfg);
+    const after = await admin.query('SELECT COUNT(*)::int AS c FROM alert_events WHERE rule_id = $1', [ruleId]);
+    expect(after.rows[0].c).toBe(1);
+    const ob = await admin.query('SELECT COUNT(*)::int AS c FROM alert_outbox WHERE rule_id = $1', [ruleId]);
+    expect(ob.rows[0].c).toBe(1);
   });
 
-  it('respects cooldown: a second immediate evaluation does not re-fire', async () => {
-    const before = await admin.query<{ c: string }>(
-      'SELECT COUNT(*)::int AS c FROM alert_events WHERE rule_id = $1',
-      [ruleId],
-    );
-    await admin.query('SELECT * FROM evaluate_alert_rules()');
-    const after = await admin.query<{ c: string }>(
-      'SELECT COUNT(*)::int AS c FROM alert_events WHERE rule_id = $1',
-      [ruleId],
-    );
-    expect(Number(after.rows[0].c)).toBe(Number(before.rows[0].c));
+  it('accepts and returns hysteresis settings on rule create', async () => {
+    const res = await request(app.server)
+      .post('/v1/alerts/rules')
+      .set('x-api-key', apiKey)
+      .send({
+        name: 'hysteresis',
+        metric: 'request_volume',
+        operator: '>',
+        threshold: 1,
+        window_minutes: 5,
+        webhook_url: 'https://example.com/hook',
+        required_consecutive_breaches: 3,
+        recovery_evaluations: 2,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.required_consecutive_breaches).toBe(3);
+    expect(res.body.recovery_evaluations).toBe(2);
+    expect(rulesDefaults(res.body)).toBe(false);
+
+    const bad = await request(app.server)
+      .post('/v1/alerts/rules')
+      .set('x-api-key', apiKey)
+      .send({
+        name: 'bad', metric: 'request_volume', operator: '>', threshold: 1, window_minutes: 5,
+        webhook_url: 'https://example.com/hook', required_consecutive_breaches: 0,
+      });
+    expect(bad.status).toBe(400);
   });
 
   it('lists alert events for the tenant', async () => {

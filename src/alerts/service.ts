@@ -19,6 +19,8 @@ export interface AlertRule {
   window_minutes: AlertWindow;
   endpoint_filter: string | null;
   webhook_url: string;
+  required_consecutive_breaches: number;
+  recovery_evaluations: number;
   enabled: boolean;
   created_at: string;
 }
@@ -31,11 +33,14 @@ export interface CreateRuleInput {
   window_minutes: AlertWindow;
   endpoint_filter?: string | null;
   webhook_url: string;
+  required_consecutive_breaches?: number;
+  recovery_evaluations?: number;
 }
 
 const RULE_COLUMNS =
   'id, tenant_id, name, metric, operator, threshold, window_minutes, ' +
-  'endpoint_filter, webhook_url, enabled, created_at';
+  'endpoint_filter, webhook_url, required_consecutive_breaches, ' +
+  'recovery_evaluations, enabled, created_at';
 
 // threshold is a NUMERIC column (pg returns it as a string) and created_at is
 // a timestamptz (pg returns it as a Date); coerce both back to the types the
@@ -56,8 +61,9 @@ export async function createRule(
   const { rows } = await primaryPool.query<AlertRule>(
     `INSERT INTO alert_rules
        (tenant_id, name, metric, operator, threshold, window_minutes,
-        endpoint_filter, webhook_url)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        endpoint_filter, webhook_url,
+        required_consecutive_breaches, recovery_evaluations)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING ${RULE_COLUMNS}`,
     [
       tenantId,
@@ -73,6 +79,8 @@ export async function createRule(
         ? input.endpoint_filter
         : null,
       input.webhook_url,
+      input.required_consecutive_breaches ?? 1,
+      input.recovery_evaluations ?? 1,
     ],
   );
   return numifyRule(rows[0]);
@@ -106,6 +114,7 @@ export interface AlertEventRow {
   rule_id: string;
   rule_name: string;
   metric: string;
+  event_type: 'FIRING' | 'RESOLVED';
   observed_value: number;
   threshold: number;
   endpoint: string | null;
@@ -119,7 +128,7 @@ export async function listEvents(
   limit: number,
 ): Promise<AlertEventRow[]> {
   const { rows } = await primaryPool.query<AlertEventRow>(
-    `SELECT e.id, e.rule_id, r.name AS rule_name, e.metric,
+    `SELECT e.id, e.rule_id, r.name AS rule_name, e.metric, e.event_type,
             e.observed_value, e.threshold, e.endpoint, e.fired_at,
             e.webhook_status, e.webhook_fired_at
        FROM alert_events e

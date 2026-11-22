@@ -199,69 +199,74 @@ before any index is consulted.
 ## Alert System
 
 Tenants define alert rules (e.g. "error_rate > 5% over 10 minutes on
-`/api/checkout`"). When a threshold is breached, PgPulse records an alert event
-and POSTs a webhook to the tenant's registered URL. Migration `006` adds the
-`alert_rules` and `alert_events` tables, the `evaluate_alert_rules()` function,
-and a per-minute `pg_cron` job.
+`/api/checkout`"). A rule moves between `OK` and `FIRING`, and each
+transition is delivered once to the tenant's webhook through a transactional
+outbox. Migration `006` created rules and events; migration `008` added
+the state machine, leases, and `alert_outbox`.
 
-### Why evaluation lives in Postgres, not the app
+### Evaluation: leases + SKIP LOCKED (`src/alerts/evaluator.ts`)
 
-`evaluate_alert_rules()` is PL/pgSQL run by `pg_cron`, deliberately not
-application code:
+Any number of workers, in any number of app instances, can evaluate at once:
 
-- **Runs even if the app is down.** Alerting is the one thing that most needs
-  to keep working during an incident. pg_cron is part of the database, so
-  evaluation continues regardless of app health.
-- **Atomic, race-free evaluation.** Each rule's metric computation, cooldown
-  check, and `alert_events` insert happen in a single in-database pass. There
-  is no read-modify-write window between the app and the DB where two workers
-  could double-fire.
-- **Reads from raw `events`, not the materialized view.** Alerts must be near
-  real-time; the hourly MV would be up to an hour stale. The cost is a live
-  aggregate over the rule window, which is small (minutes of data) and well
-  served by the existing time + tenant indexes.
+1. **Claim** (short transaction): `SELECT ... FROM alert_rules WHERE enabled AND
+   next_eval_at <= now() AND (lease_until IS NULL OR lease_until < now())
+   FOR UPDATE SKIP LOCKED`, then stamp `lease_owner` / `lease_until`. A locked
+   row is skipped rather than waited on, and a leased rule is invisible to the
+   other workers.
+2. **Compute** the metric from raw `events` with no row lock held.
+3. **Finalize** (one transaction): re-lock the rule and continue only if this
+   worker still owns an unexpired lease. Update `alert_state`, and on a
+   transition insert the `alert_events` row and the `alert_outbox` row, advance
+   `next_eval_at`, and release the lease. A worker that stalled past its lease
+   fails the ownership check and writes nothing, which is what prevents a
+   double fire after a takeover. A worker that crashes simply lets its lease
+   expire.
 
-### Cooldown
+The claim and the finalize are separate transactions on purpose: a lease can
+span a slow metric query without holding a row lock for its duration.
 
-After a rule fires, it will not fire again until its own `window_minutes` has
-elapsed (the evaluator checks `MAX(fired_at)` for the rule). This is intentional:
-the window *is* the natural cooldown — if you alert on a 10-minute error rate,
-re-alerting before 10 minutes have passed would just re-report the same window
-of bad data. It bounds notification volume to at most one per window per rule.
+### Hysteresis (`src/alerts/state-machine.ts`)
 
-### Webhook delivery model — fire-and-forget, 60s poll
+`OK -> FIRING` after `required_consecutive_breaches` consecutive breaching
+evaluations; `FIRING -> OK` (`RESOLVED`) after `recovery_evaluations`
+consecutive clean ones. Both default to 1 per rule. A window with no events
+counts as clean. This replaces the old cooldown (one fire per `window_minutes`):
+a rule now announces each transition once, instead of re-announcing every window
+while it stays in breach.
 
-pg_cron **cannot make HTTP calls** without the `pg_net` extension, which is not
-installed here (keeping the stack dependency-free). So evaluation and delivery
-are split:
+### Delivery: transactional outbox (`src/alerts/dispatcher.ts`)
 
 ```
-pg_cron (every minute)        app webhook worker (every 60s)
-  evaluate_alert_rules()  ->   poll alert_events WHERE webhook_fired_at IS NULL
-  INSERT alert_events           POST payload to rule.webhook_url (5s timeout)
-  (webhook_fired_at NULL)       UPDATE status + response + webhook_fired_at
+evaluator (any worker)                 dispatcher (any worker)
+  BEGIN                                  claim: SELECT ... FROM alert_outbox
+  UPDATE alert_state                       WHERE status='pending' AND next_attempt_at<=now()
+  INSERT alert_events                      FOR UPDATE SKIP LOCKED  (+ lease)
+  INSERT alert_outbox   ---- commit --->  POST payload (5s timeout, https only)
+  COMMIT                                   sent | retry(backoff+jitter) | dead
 ```
 
-The `alert_events` table doubles as a durable delivery queue: a fired event with
-`webhook_fired_at IS NULL` is "pending". The worker runs on a single
-`setInterval(60s)` started after the pools are ready, isolated per-event with
-`Promise.allSettled`, wrapped in try/catch so a bad webhook can never crash the
-Fastify event loop. Delivery is fire-and-forget: success or failure, the row is
-stamped exactly once and never retried.
+The outbox row commits atomically with the state change, so an alert can
+neither be lost nor announced without its state change. Retries use exponential
+backoff with equal jitter (delay uniform in [ceiling/2, ceiling), ceiling =
+min(cap, base * 2^(attempt-1))). After `ALERT_MAX_ATTEMPTS` (default 8) the row
+becomes `dead` and is never retried. The result is recorded only if the worker
+still holds the row's lease.
 
-Why not call the webhook synchronously inside the pg_cron job? Because the DB
-would need outbound HTTP (pg_net), evaluation would block on slow/oﬄine
-endpoints, and a hung webhook could stall the whole evaluation pass. Decoupling
-keeps evaluation fast and deterministic.
+Delivery is **at-least-once**. A worker that dies between the POST and recording
+the result causes a re-delivery after its lease expires. Payloads carry
+`alert_event_id` so receivers can deduplicate.
 
-### Known limitations (documented future improvements)
+### Trade-offs and limitations
 
-- **No retry.** A failed delivery (timeout, 5xx, DNS) is recorded with its
-  status/error and not retried. Retry with backoff (e.g. a `retry_count` +
-  `next_attempt_at` column and a worker that re-queues) is a future improvement.
-- **App-down delivery lag.** If the *app* is down, webhooks queue up in
-  `alert_events` and fire on the next poll after restart — at-least-once-ish on
-  restart, but delayed. **Alert *evaluation* still runs via pg_cron regardless**,
-  so no breach is missed; only the outbound notification is deferred.
+- **Evaluation now needs the app.** Before migration `008`, evaluation ran in
+  Postgres via pg_cron and continued while every app instance was down. Now at
+  least one app instance must be running. In exchange, evaluation scales across
+  workers and the state machine is unit-tested. Running a second instance, or a
+  dedicated worker process, removes the single point of failure.
+- **Lease sizing.** `ALERT_LEASE_MS` (default 60s) must exceed the slowest metric
+  query, and `ALERT_DISPATCH_LEASE_MS` must exceed the webhook timeout, or a
+  healthy worker loses its lease and its work is repeated (safely, but wasted).
+- **Dead letters are not replayed automatically.** Inspect with
+  `SELECT * FROM alert_outbox WHERE status = 'dead'`.
 - **https-only.** Webhook URLs must be `https://` (validated on rule creation and
   re-checked at delivery). Plain `http://` is rejected.

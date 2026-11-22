@@ -95,10 +95,9 @@ or "my p99 latency on `/search` is 2s."
   GIN indexes, `hourly_stats` materialized view
 - **Query layer:** `pg` (node-postgres), parameterized everywhere, no `SELECT *`
 - **Pooling:** PgBouncer in transaction mode
-- **Scheduling:** pg_cron (hourly MV refresh, daily partition pre-creation,
-  per-minute alert evaluation)
-- **Alerts:** in-database threshold evaluation + webhook delivery (no queue lib,
-  no Redis)
+- **Scheduling:** pg_cron (hourly MV refresh, daily partition pre-creation)
+- **Alerts:** app-side evaluator + outbox dispatcher coordinated with
+  `FOR UPDATE SKIP LOCKED` leases (no queue lib, no Redis)
 - **Observability:** pg_stat_statements + replica lag via `/health`
 - **Tests:** Vitest (unit) + supertest (integration)
 
@@ -183,11 +182,14 @@ JWT/mTLS). This is flagged, not silently shipped.
 
 ### Alerts
 
-Tenants set threshold rules on live metrics; PgPulse fires a webhook when one
-breaches. Evaluation runs **inside Postgres** every minute via `pg_cron`
-(`evaluate_alert_rules()`), so it keeps working even if the app is down.
-Webhook delivery is handled by an in-app poll worker (pg_cron can't make HTTP
-calls without pg_net). See [`docs/SCALING.md`](docs/SCALING.md) → "Alert System".
+Tenants set threshold rules on live metrics; PgPulse sends a webhook when a rule
+starts firing and when it resolves. Evaluator workers claim due rules with
+`FOR UPDATE SKIP LOCKED` and a lease, so several app instances can run without
+double-firing. Each transition is written to an `alert_outbox` table in the same
+transaction as the state change, and a dispatcher delivers it with exponential
+backoff and jitter, moving it to `dead` after `ALERT_MAX_ATTEMPTS`. Evaluation
+now needs a running app instance (it no longer runs in pg_cron). See
+[`docs/SCALING.md`](docs/SCALING.md) → "Alert System".
 
 ```bash
 # alert when error_rate > 5% over 10 min on /api/checkout
@@ -196,7 +198,8 @@ curl -s -XPOST localhost:3000/v1/alerts/rules -H "x-api-key: $KEY" \
     "name":"High error rate on checkout",
     "metric":"error_rate", "operator":">", "threshold":5,
     "window_minutes":10, "endpoint_filter":"/api/checkout",
-    "webhook_url":"https://your-site.com/webhook"
+    "webhook_url":"https://your-site.com/webhook",
+    "required_consecutive_breaches":3, "recovery_evaluations":2
   }'
 
 curl -s localhost:3000/v1/alerts/rules  -H "x-api-key: $KEY"   # list rules
@@ -205,6 +208,11 @@ curl -s localhost:3000/v1/alerts/events -H "x-api-key: $KEY"   # fired alerts
 
 Metrics: `error_rate` | `p95_latency_ms` | `request_volume`. Operators: `>` `<`.
 Windows: 5/10/15/30/60 min. Webhook URLs must be `https://`.
+`required_consecutive_breaches` (default 1) is how many consecutive evaluations
+must breach before `FIRING`; `recovery_evaluations` (default 1) is how many clean
+ones are needed before `RESOLVED`. Webhook payloads include `event_type`
+(`FIRING`/`RESOLVED`) and `alert_event_id` for deduplication (delivery is
+at-least-once).
 
 ## Development
 
@@ -258,7 +266,7 @@ scripts/              seed.ts (1M events) + benchmark.ts (EXPLAIN ANALYZE captur
 src/ingest/           POST /v1/events[/batch]  (ring buffer -> binary COPY, token buckets)
 src/query/            analytics services + MV-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
-src/alerts/           alert rules/events services, routes, webhook delivery worker
+src/alerts/           rules/events services, routes, evaluator, outbox dispatcher
 src/middleware/       api-key auth, per-tenant rate limiting
 src/health/           /health: pool stats, replica lag, pg_stat_statements
 docker/               primary (pg_cron image + conf), replica, pgbouncer

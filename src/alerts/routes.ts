@@ -33,6 +33,10 @@ const createRuleSchema = {
     endpoint_filter: { type: 'string', maxLength: 2048, nullable: true },
     // https-only, validated strictly below in addition to the format hint.
     webhook_url: { type: 'string', maxLength: 2048, format: 'uri' },
+    // Hysteresis: consecutive breaching evaluations before FIRING, and
+    // consecutive clean evaluations before RESOLVED. Both default to 1.
+    required_consecutive_breaches: { type: 'integer', minimum: 1, maximum: 60 },
+    recovery_evaluations: { type: 'integer', minimum: 1, maximum: 60 },
   },
 } as const;
 
