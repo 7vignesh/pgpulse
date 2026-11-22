@@ -3,8 +3,8 @@
 A production-grade, multi-tenant API analytics platform built on PostgreSQL 16.
 Ingest API request events per tenant, then query overview / endpoint /
 latency / error / timeseries analytics all tenant-isolated by Row-Level
-Security and scaled with partitioning, a read replica, PgBouncer, and a
-materialized view refreshed by pg_cron.
+Security and scaled with partitioning, a lag-aware read replica, PgBouncer, and
+incremental 1-minute / 1-hour rollups.
 
 ## What is this, in plain terms?
 
@@ -92,13 +92,13 @@ or "my p99 latency on `/search` is 2s."
 
 - **API:** Node.js + Fastify + TypeScript (no Express, no ORM)
 - **DB:** PostgreSQL 16 RANGE-partitioned events, RLS, BRIN/partial/covering/
-  GIN indexes, `hourly_stats` materialized view
+  GIN indexes, incremental `rollup_1m` / `rollup_1h` tables
 - **Query layer:** `pg` (node-postgres), parameterized everywhere, no `SELECT *`
 - **Pooling:** PgBouncer in transaction mode
-- **Scheduling:** pg_cron (hourly MV refresh, daily partition pre-creation)
+- **Scheduling:** pg_cron (daily partition pre-creation); rollups run in an app worker
 - **Alerts:** app-side evaluator + outbox dispatcher coordinated with
   `FOR UPDATE SKIP LOCKED` leases (no queue lib, no Redis)
-- **Observability:** pg_stat_statements + replica lag via `/health`
+- **Observability:** pg_stat_statements, replica lag and read-router state via `/health`
 - **Tests:** Vitest (unit) + supertest (integration)
 
 ## Architecture
@@ -147,7 +147,7 @@ curl -s -XPOST localhost:3000/v1/events/batch -H "x-api-key: $KEY" \
   -H 'content-type: application/json' \
   -d '{"events":[{"endpoint":"/x","method":"GET","status_code":500,"latency_ms":9}]}'
 
-# analytics (tenant-scoped, served from replica)
+# analytics (tenant-scoped; replica while lag <= 2s, primary otherwise)
 curl -s "localhost:3000/v1/analytics/overview"   -H "x-api-key: $KEY"
 curl -s "localhost:3000/v1/analytics/endpoints?limit=5" -H "x-api-key: $KEY"
 curl -s "localhost:3000/v1/analytics/errors"     -H "x-api-key: $KEY"
@@ -172,7 +172,7 @@ curl -s "localhost:3000/v1/analytics/timeseries?granularity=hour" -H "x-api-key:
 | GET  | `/v1/alerts/rules` | x-api-key | list the tenant's rules |
 | DELETE | `/v1/alerts/rules/:id` | x-api-key | delete a rule (tenant-scoped) |
 | GET  | `/v1/alerts/events` | x-api-key | recent fired alerts (`?limit=`) |
-| GET  | `/health` | none | pool stats, replica lag, slow queries |
+| GET  | `/health` | none | pool stats, replica lag, read-router state, slow queries |
 
 Analytics endpoints take `?from=&to=` (ISO-8601, default last 24h).
 
@@ -252,7 +252,7 @@ Locally (no Docker, against a reachable primary) the same scripts are
 
 ## Docs
 
-- [`docs/SCHEMA.md`](docs/SCHEMA.md) — tables, partitioning, every index, MV strategy, RLS
+- [`docs/SCHEMA.md`](docs/SCHEMA.md) — tables, partitioning, every index, rollups, RLS
 - [`docs/SCALING.md`](docs/SCALING.md) — PgBouncer, replica routing, partition maintenance, pg_partman, sub-partitioning, EXPLAIN ANALYZE, alert system
 - [`schema/ERD.md`](schema/ERD.md) — Mermaid ERD + partition layout
 - [`benchmarks/explain-analyze/`](benchmarks/explain-analyze/) — captured query plans, before/after indexes
@@ -260,11 +260,12 @@ Locally (no Docker, against a reachable primary) the same scripts are
 ## Project layout
 
 ```
-migrations/           sequential raw SQL (tenants, partitions, indexes, MV, cron, alerts)
-src/db/               PgBouncer-aware pools + migration runner
+migrations/           sequential raw SQL (tenants, partitions, indexes, cron, alerts, rollups)
+src/db/               PgBouncer-aware pools, lag-aware read router, migration runner
+src/rollup/           watermark-cursor rollup worker + segment planner
 scripts/              seed.ts (1M events) + benchmark.ts (EXPLAIN ANALYZE capture)
 src/ingest/           POST /v1/events[/batch]  (ring buffer -> binary COPY, token buckets)
-src/query/            analytics services + MV-vs-raw routing (range.ts is pure)
+src/query/            analytics services + rollup-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
 src/alerts/           rules/events services, routes, evaluator, outbox dispatcher
 src/middleware/       api-key auth, per-tenant rate limiting

@@ -39,22 +39,3 @@ export function parseRange(
   }
   return { ok: true, range: { from, to } };
 }
-
-/**
- * Start of the current clock hour. Hours strictly before this are "complete"
- * and present in the hourly_stats materialized view (after its hourly refresh).
- */
-export function currentHourStart(now: Date = new Date()): Date {
-  const d = new Date(now.getTime());
-  d.setUTCMinutes(0, 0, 0);
-  return d;
-}
-
-/**
- * A window is servable from the materialized view when it ends at or before
- * the start of the current (incomplete) hour. Otherwise the most recent data
- * must be read live from `events`.
- */
-export function servableFromMV(range: TimeRange, now: Date = new Date()): boolean {
-  return range.to <= currentHourStart(now);
-}

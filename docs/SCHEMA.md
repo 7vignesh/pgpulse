@@ -78,34 +78,39 @@ for ad-hoc segmentation without schema changes.
 
 ---
 
-## Materialized view: `hourly_stats`
+## Rollups: `rollup_1m` and `rollup_1h`
 
-Per `(tenant_id, hour, endpoint)` rollup storing request/error counts, average
-latency, and exact p50/p95/p99 percentiles per hour.
+Per `(tenant_id, endpoint, bucket)` aggregates of `events`, one table per
+resolution (1 minute, 1 hour). Columns: `request_count`, `error_count`,
+`sum_latency_ms`, `min_latency_ms`, `max_latency_ms`, `p50/p95/p99_latency_ms`.
+Primary key `(tenant_id, bucket, endpoint)`. RLS is enabled and forced with the
+same policy as `events`. They replace the old `hourly_stats` materialized view,
+which was rebuilt from all history every hour.
 
-### Refresh strategy
+### Maintenance: watermark cursors
 
-- Refreshed every hour at minute 0 by `pg_cron`:
-  `REFRESH MATERIALIZED VIEW CONCURRENTLY hourly_stats`.
-- `CONCURRENTLY` avoids locking readers and requires the `UNIQUE` index
-  `uq_hourly_stats (tenant_id, hour, endpoint)`.
+`rollup_watermarks (name, watermark)` holds one cursor per table. Each worker
+pass aggregates only `ingested_at >= watermark AND ingested_at < new_watermark`,
+upserts the buckets, and advances the cursor in the same transaction. Cursors
+are aligned to the bucket size, so a rollup row always describes a complete
+bucket and re-running a range is idempotent. The cursor row is taken with
+`FOR UPDATE SKIP LOCKED`, so several app instances can run the worker.
+Events that become visible with an `ingested_at` before the cursor (old
+client-supplied timestamps, or commits later than
+`ROLLUP_SAFETY_LAG_SECONDS`) are not picked up.
 
-### Read routing (MV vs raw)
+### Read routing (rollup vs raw)
 
-The query service decides per request (`servableFromMV`):
-
-- **Window ends at or before the current clock hour** → every hour involved is
-  "complete" and present in the MV → read from `hourly_stats` (cheap, pre-
-  aggregated).
-- **Window includes the current, incomplete hour** → recent data may not be in
-  the MV yet → read live from `events`.
-
-Counts and averages re-aggregate cleanly from the MV. Average latency is
-recombined as a request-weighted mean (`SUM(avg_latency_ms * total_requests) /
-SUM(total_requests)`). Arbitrary-window percentiles cannot be re-derived from
-per-hour percentiles, so the per-endpoint / cross-window latency endpoint
-computes `PERCENTILE_CONT` from raw `events` when an exact value is required;
-the MV serves the per-hour percentile series directly.
+Ranges of one hour or less read raw `events`. Longer ranges are split by
+`planSegments()` (`src/rollup/plan.ts`) into whole hours from `rollup_1h`,
+whole minutes from `rollup_1m`, and raw edges, based on the watermarks read in
+the same transaction. A rollup that is behind leaves the gap to a finer source,
+so it makes queries slower but never wrong. Counts, sums, min and max combine
+exactly. Percentiles do not: per-endpoint hourly percentiles are exact, while a
+tenant-wide hourly percentile is a request-weighted average of the endpoints'
+percentiles (an approximation), and the 1-minute table is never used for
+percentiles. `/v1/analytics/errors` always reads raw events because the rollups
+do not keep status codes.
 
 ---
 

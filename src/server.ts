@@ -10,7 +10,9 @@ import { registerAlertRoutes } from './alerts/routes.js';
 import { startAlertWorkers } from './alerts/workers.js';
 import { registerHealthRoute } from './health/route.js';
 import { startIngest, stopIngest } from './ingest/pipeline.js';
-import { PoolExhaustedError, closePools } from './db/pool.js';
+import { PoolExhaustedError, closePools, primaryPool } from './db/pool.js';
+import { readRouter } from './db/router.js';
+import { startRollupWorker } from './rollup/worker.js';
 
 /**
  * Fastify server assembly. Builds the app, registers plugins + route groups,
@@ -36,6 +38,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   // before the caller closes the DB pools.
   app.addHook('onReady', async () => startIngest((msg) => app.log.info(msg)));
   app.addHook('onClose', async () => stopIngest());
+
+  // Lag-aware read routing: probe the replica; analytics reads fall back to the
+  // primary whenever it is lagging or unreachable.
+  app.addHook('onReady', async () => readRouter.start());
+  app.addHook('onClose', async () => readRouter.stop());
 
   // Map known error types to clean HTTP responses.
   app.setErrorHandler((err, request, reply) => {
@@ -78,6 +85,8 @@ async function main(): Promise<void> {
   // (SKIP LOCKED + leases). Only runs in the long-lived server process, never
   // under tests that import buildServer().
   const stopAlertWorkers = startAlertWorkers((msg) => app.log.info(msg));
+  // Incremental rollups (watermark cursors); safe to run on several instances.
+  const stopRollupWorker = startRollupWorker((msg) => app.log.info(msg), primaryPool);
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -93,6 +102,7 @@ async function main(): Promise<void> {
     forceExit.unref();
     try {
       await stopAlertWorkers();
+      await stopRollupWorker();
       await app.close();
       await closePools();
       clearTimeout(forceExit);

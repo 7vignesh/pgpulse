@@ -112,7 +112,7 @@ d('integration: ingest + analytics', () => {
     expect(res.status).toBe(200);
     expect(res.body.total_requests).toBeGreaterThanOrEqual(51);
     expect(res.body).toHaveProperty('error_rate');
-    expect(['raw', 'materialized_view']).toContain(res.body.source);
+    expect(['raw', 'rollup']).toContain(res.body.source);
   });
 
   it('returns per-endpoint breakdown sorted by count', async () => {
