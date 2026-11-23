@@ -1,0 +1,35 @@
+-- latency_per_endpoint_30d WITH idx_events_tenant_endpoint_time (migration 011)
+-- captured 2026-11-23T20:38Z, 1,000,000 seeded events (npm run seed), tenant 'acme', max_parallel_workers_per_gather=0
+-- query:
+--   SELECT date_trunc('hour', ingested_at) AS bucket,
+--          PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+--          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
+--          PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99
+--     FROM events
+--    WHERE tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'
+--      AND ingested_at >= now() - interval '30 days' AND ingested_at < now()
+--      AND endpoint = '/api/search'
+--    GROUP BY 1 ORDER BY 1
+
+GroupAggregate  (cost=10947.30..11612.91 rows=22187 width=32) (actual time=38.633..45.930 rows=721 loops=1)
+  Group Key: (date_trunc('hour'::text, events.ingested_at))
+  Buffers: shared hit=4470 read=188
+  ->  Sort  (cost=10947.30..11002.77 rows=22187 width=12) (actual time=38.562..40.131 rows=22209 loops=1)
+        Sort Key: (date_trunc('hour'::text, events.ingested_at))
+        Sort Method: quicksort  Memory: 1636kB
+        Buffers: shared hit=4462 read=188
+        ->  Append  (cost=0.43..9345.69 rows=22187 width=12) (actual time=0.097..32.107 rows=22209 loops=1)
+              Buffers: shared hit=4459 read=188
+              Subplans Removed: 3
+              ->  Index Only Scan using events_2026_10_tenant_id_endpoint_ingested_at_latency_ms_st_idx on events_2026_10 events_1  (cost=0.43..3525.31 rows=5349 width=12) (actual time=0.096..9.471 rows=5333 loops=1)
+                    Index Cond: ((tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'::uuid) AND (endpoint = '/api/search'::text) AND (ingested_at >= (now() - '30 days'::interval)) AND (ingested_at < now()))
+                    Heap Fetches: 1163
+                    Buffers: shared hit=1164 read=47
+              ->  Index Only Scan using events_2026_11_tenant_id_endpoint_ingested_at_latency_ms_st_idx on events_2026_11 events_2  (cost=0.43..5700.98 rows=16835 width=12) (actual time=0.165..19.188 rows=16876 loops=1)
+                    Index Cond: ((tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'::uuid) AND (endpoint = '/api/search'::text) AND (ingested_at >= (now() - '30 days'::interval)) AND (ingested_at < now()))
+                    Heap Fetches: 3295
+                    Buffers: shared hit=3295 read=141
+Planning:
+  Buffers: shared hit=937 read=5
+Planning Time: 4.426 ms
+Execution Time: 46.254 ms

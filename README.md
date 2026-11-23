@@ -104,6 +104,20 @@ or "my p99 latency on `/search` is 2s."
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  client([Client app<br/>x-api-key]) --> app[Fastify API :3000]
+  op([Operator<br/>Bearer token]) -->|/internal/db-health| app
+  app -->|writes, auth<br/>txn pooling| bouncer[PgBouncer :6432]
+  bouncer --> primary[(Postgres primary<br/>RLS, RANGE partitions,<br/>pg_cron, pg_stat_statements)]
+  app -->|analytics reads| replica[(Streaming replica<br/>hot standby)]
+  primary -->|WAL stream| replica
+  primary -.->|every minute| cron{{pg_cron:<br/>alerts, MV refresh,<br/>partition pre-create}}
+  app -->|webhook worker 60s| hooks([Tenant webhooks<br/>https only])
+```
+
+Text version:
+
 ```
                    ┌──────────────┐  writes   ┌────────────┐   ┌──────────────┐
  client ──x-api-key──▶  Fastify   ├──────────▶│ PgBouncer  ├──▶│  Postgres    │
@@ -174,6 +188,7 @@ curl -s "localhost:3000/v1/analytics/timeseries?granularity=hour" -H "x-api-key:
 | DELETE | `/v1/alerts/rules/:id` | x-api-key | delete a rule (tenant-scoped) |
 | GET  | `/v1/alerts/events` | x-api-key | recent fired alerts (`?limit=`) |
 | GET  | `/health` | none | pool stats, replica lag, read-router state, slow queries |
+| GET  | `/internal/db-health` | `Bearer $INTERNAL_API_TOKEN` | cache hit ratio, connections, replication lag, ingest buffer, top slow queries (404 unless the token is set) |
 
 Analytics endpoints take `?from=&to=` (ISO-8601, default last 24h).
 
@@ -232,6 +247,28 @@ npm test
 
 Routes are thin (auth + validate + delegate); all logic lives in `*/service.ts`.
 
+### Load test (k6)
+
+```bash
+npm run bench:k6           # 50 concurrent tenants, mixed ingest + analytics, 2 min
+```
+
+Runs the `grafana/k6` image against the app on `:3000` (see
+[`benchmarks/README.md`](benchmarks/README.md)). Measured on a laptop
+(i5-1135G7, Docker Desktop with 4 CPUs / 8 GB, everything in one VM), 1 M
+seeded events, 50 tenants:
+
+| scenario | throughput | ingest p95 | analytics p95 | errors |
+|----------|-----------:|-----------:|--------------:|-------:|
+| ingest only    | 207 req/s | 116 ms | - | 0 % |
+| analytics only | 234 req/s | - | 25 ms | 0 % |
+| mixed 70/30    | 213 req/s | 76 ms | 45 ms | 0 % |
+| mixed, no think time | 410 req/s | 310 ms | 167 ms | 0 % |
+
+The last row is saturation: ingest p95 passes 250 ms at about 410 req/s,
+because each request is its own transaction. These are laptop baselines for
+comparing changes, not production capacity.
+
 ### Seed + benchmark
 
 ```bash
@@ -253,6 +290,8 @@ Locally (no Docker, against a reachable primary) the same scripts are
 
 ## Docs
 
+- [`docs/adr/`](docs/adr/) — architecture decision records (pooling, RLS, partitioning, indexes, alerting, replica, diagnostics)
+- [`benchmarks/README.md`](benchmarks/README.md) — k6 load test and measured results
 - [`docs/SCHEMA.md`](docs/SCHEMA.md) — tables, partitioning, every index, rollups, RLS
 - [`docs/SCALING.md`](docs/SCALING.md) — PgBouncer, replica routing, partition maintenance, pg_partman, sub-partitioning, EXPLAIN ANALYZE, alert system
 - [`schema/ERD.md`](schema/ERD.md) — Mermaid ERD + partition layout
@@ -271,7 +310,9 @@ src/query/            analytics services + rollup-vs-raw routing (range.ts is pu
 src/tenants/          tenant CRUD + key rotation
 src/alerts/           rules/events services, routes, evaluator, outbox dispatcher
 src/middleware/       api-key auth, per-tenant rate limiting
-src/health/           /health: pool stats, replica lag, pg_stat_statements
+src/health/           /health (probe) + /internal/db-health (token-gated diagnostics)
+benchmarks/k6/        k6 load test, 50 concurrent tenants (scripts/k6.sh)
+docs/adr/             architecture decision records
 docker/               primary (pg_cron image + conf), replica, pgbouncer (MinIO: see docker-compose.yml)
 ```
 

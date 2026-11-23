@@ -26,7 +26,7 @@ interface SlowQuery {
 
 const SLOW_QUERY_LIMIT = 10;
 
-async function replicaLag(): Promise<{
+export async function replicaLag(): Promise<{
   configured: boolean;
   bytes: number | null;
   seconds: number | null;

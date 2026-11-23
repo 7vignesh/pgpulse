@@ -3,4 +3,5 @@ dist/
 .env
 *.log
 coverage/
+benchmarks/k6/results/
 .DS_Store
