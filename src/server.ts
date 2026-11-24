@@ -10,6 +10,7 @@ import { registerAlertRoutes } from './alerts/routes.js';
 import { startAlertWorkers } from './alerts/workers.js';
 import { startPartitionManager } from './partitions/manager.js';
 import { registerHealthRoute } from './health/route.js';
+import { registerDbHealthRoute } from './health/db-health.js';
 import { startIngest, stopIngest } from './ingest/pipeline.js';
 import { PoolExhaustedError, closePools, primaryPool } from './db/pool.js';
 import { readRouter } from './db/router.js';
@@ -67,6 +68,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(registerHealthRoute);
+  await app.register(registerDbHealthRoute);
   await app.register(registerTenantRoutes);
   await app.register(registerIngestRoutes);
   await app.register(registerQueryRoutes);

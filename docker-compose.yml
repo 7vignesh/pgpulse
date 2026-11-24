@@ -155,6 +155,7 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-pgpulse}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-pgpulse_minio_secret}
       PARTITION_RETENTION_DAYS: ${PARTITION_RETENTION_DAYS:-90}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
     ports:
       - "3000:3000"
     depends_on:

@@ -14,6 +14,7 @@
     "migrate:status": "tsx src/db/migrate.ts status",
     "seed": "tsx scripts/seed.ts",
     "benchmark": "tsx scripts/benchmark.ts",
+    "bench:k6": "bash scripts/k6.sh mixed",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"

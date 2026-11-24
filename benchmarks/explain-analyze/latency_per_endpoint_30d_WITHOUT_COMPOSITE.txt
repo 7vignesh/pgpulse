@@ -1,0 +1,39 @@
+-- latency_per_endpoint_30d WITHOUT idx_events_tenant_endpoint_time
+-- captured 2026-11-23T20:38Z, 1,000,000 seeded events (npm run seed), tenant 'acme', max_parallel_workers_per_gather=0
+-- query:
+--   SELECT date_trunc('hour', ingested_at) AS bucket,
+--          PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+--          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
+--          PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99
+--     FROM events
+--    WHERE tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'
+--      AND ingested_at >= now() - interval '30 days' AND ingested_at < now()
+--      AND endpoint = '/api/search'
+--    GROUP BY 1 ORDER BY 1
+
+GroupAggregate  (cost=20660.39..21326.00 rows=22187 width=32) (actual time=43.219..47.459 rows=721 loops=1)
+  Group Key: (date_trunc('hour'::text, events.ingested_at))
+  Buffers: shared hit=23769
+  ->  Sort  (cost=20660.39..20715.86 rows=22187 width=12) (actual time=43.162..44.167 rows=22209 loops=1)
+        Sort Key: (date_trunc('hour'::text, events.ingested_at))
+        Sort Method: quicksort  Memory: 1636kB
+        Buffers: shared hit=23761
+        ->  Append  (cost=0.43..19058.78 rows=22187 width=12) (actual time=0.059..39.726 rows=22209 loops=1)
+              Buffers: shared hit=23758
+              Subplans Removed: 3
+              ->  Index Only Scan using events_2026_10_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_10 events_1  (cost=0.43..8438.35 rows=5349 width=12) (actual time=0.059..13.191 rows=5333 loops=1)
+                    Index Cond: ((tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'::uuid) AND (ingested_at >= (now() - '30 days'::interval)) AND (ingested_at < now()))
+                    Filter: (endpoint = '/api/search'::text)
+                    Rows Removed by Filter: 21190
+                    Heap Fetches: 5526
+                    Buffers: shared hit=5809
+              ->  Index Only Scan using events_2026_11_tenant_id_ingested_at_endpoint_status_code_l_idx on events_2026_11 events_2  (cost=0.43..10501.03 rows=16835 width=12) (actual time=0.074..24.996 rows=16876 loops=1)
+                    Index Cond: ((tenant_id = '85a49c86-8819-45b4-8a6b-4ab83f49ef39'::uuid) AND (ingested_at >= (now() - '30 days'::interval)) AND (ingested_at < now()))
+                    Filter: (endpoint = '/api/search'::text)
+                    Rows Removed by Filter: 67996
+                    Heap Fetches: 17066
+                    Buffers: shared hit=17949
+Planning:
+  Buffers: shared hit=747
+Planning Time: 3.003 ms
+Execution Time: 47.725 ms

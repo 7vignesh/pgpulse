@@ -98,3 +98,40 @@ Notes:
 
 The `01_*`–`04_*` files above are the earlier hand-captured plans on ~50k rows;
 the per-query `*_WITH/WITHOUT_INDEXES.txt` files are the automated 1M-row run.
+
+---
+
+## PR 5 index review (migration `011`)
+
+Re-checked on 1,000,000 seeded events with the queries the API actually runs
+(`src/query/service.ts`), `max_parallel_workers_per_gather = 0`, median of 7
+runs.
+
+**Kept as is.** `idx_events_dashboard (tenant_id, ingested_at DESC) INCLUDE
+(...)` is already the composite tenant + time index: overview, endpoint
+breakdown and timeseries over 24 h run as Index Only Scans on it (about 3-4 ms).
+The errors query uses `(tenant_id, ingested_at)` bitmap scans (about 2 ms).
+
+**BRIN.** On the seeded data `ingested_at` has correlation about 0 (the seed
+script inserts rows in random time order), so BRIN cannot skip anything there.
+On a copy of the same rows in append order (correlation 1.0, as real ingest
+produces), a 6-hour cross-tenant range went from 6,272 buffers / 33.6 ms
+(seq scan) to 137 buffers / 1.0 ms with the BRIN. `pages_per_range` 128
+(default), 32 and 8 all read 137-139 buffers, so the default stays.
+
+**Added: `idx_events_tenant_endpoint_time (tenant_id, endpoint, ingested_at
+DESC) INCLUDE (latency_ms, status_code)`.** The per-endpoint latency query
+(`/v1/analytics/latency?endpoint=`) only had the dashboard index, so it read
+the tenant's whole time range and filtered out the other endpoints
+(`Rows Removed by Filter: 67,996` over 30 days).
+
+| window | without | with | buffers |
+|--------|--------:|-----:|--------:|
+| 24 h | 2.85 ms | 1.31 ms | 822 -> 162 |
+| 7 d  | 13.95 ms | 6.37 ms | 5,607 -> 1,062 |
+| 30 d | 50.98 ms | 24.09 ms | 23,769 -> 4,658 |
+
+Plans: `latency_per_endpoint_30d_WITHOUT_COMPOSITE.txt` and
+`latency_per_endpoint_30d_WITH_COMPOSITE.txt`. Cost: about 40 MB of index per
+650k rows, and one more index to update on each insert. See
+[`docs/adr/0004-index-strategy.md`](../../docs/adr/0004-index-strategy.md).
