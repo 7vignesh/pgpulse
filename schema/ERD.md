@@ -22,17 +22,27 @@ erDiagram
         jsonb       metadata
         timestamptz ingested_at "RANGE partition key"
     }
-    EVENTS ||..|| HOURLY_STATS : "rolled up hourly (MV)"
-    HOURLY_STATS {
+    EVENTS ||..|| ROLLUP_1H : "rolled up incrementally (watermark)"
+    EVENTS ||..|| ROLLUP_1M : "rolled up incrementally (watermark)"
+    ROLLUP_1H {
         uuid        tenant_id "PK part"
-        timestamptz hour "PK part, date_trunc('hour')"
+        timestamptz bucket "PK part, start of hour"
         text        endpoint "PK part"
-        bigint      total_requests
+        bigint      request_count
         bigint      error_count
-        numeric     avg_latency_ms
+        bigint      sum_latency_ms
+        integer     min_latency_ms
+        integer     max_latency_ms
         double      p50_latency_ms
         double      p95_latency_ms
         double      p99_latency_ms
+    }
+    ROLLUP_1M {
+        uuid        tenant_id "PK part"
+        timestamptz bucket "PK part, start of minute"
+        text        endpoint "PK part"
+        bigint      request_count
+        bigint      error_count
     }
 ```
 

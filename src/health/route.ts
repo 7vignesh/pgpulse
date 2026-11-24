@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { primaryPool, replicaPool, poolStats } from '../db/pool.js';
+import { readRouter } from '../db/router.js';
 
 /**
  * Health + observability endpoint.
@@ -148,6 +149,7 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
         replica: replicaPool === primaryPool ? 'shared-with-primary' : replicaOk,
       },
       replica_lag: lag,
+      read_router: readRouter.status(),
       slow_queries: slow,
     };
 

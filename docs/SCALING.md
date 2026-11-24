@@ -45,8 +45,7 @@ transactions**. Specifically the app must avoid:
 
 ### Migrations and DDL bypass PgBouncer
 
-`CREATE INDEX [CONCURRENTLY]`, `REFRESH MATERIALIZED VIEW CONCURRENTLY`,
-multi-statement transactional DDL, and `pg_cron` scheduling all need a stable
+`CREATE INDEX [CONCURRENTLY]`, multi-statement transactional DDL, and `pg_cron` scheduling all need a stable
 session. The migration runner (`src/db/migrate.ts`) therefore connects on
 `ADMIN_DATABASE_URL` — a **direct** session-mode connection to Postgres on
 :5432, not through PgBouncer.
@@ -71,22 +70,48 @@ health  replica lag  → replica           (pg_last_wal_replay_timestamp)
 ```
 
 - `src/db/pool.ts` exposes `primaryPool` and `replicaPool`. The analytics
-  service runs every query via `withTransaction(replicaPool, …, {readOnly:true})`.
+  service runs every query via `readTransaction()` (`src/db/router.ts`), which
+  picks the pool per request: the replica while it is healthy, else the primary.
 - If `REPLICA_DATABASE_URL` is unset, `replicaPool` falls back to the primary,
   so the app runs single-node without code changes.
 - The replica is a physical streaming replica (`pg_basebackup --wal-method=
   stream`, `standby.signal`, `primary_conninfo`). `wal_level = replica`,
   `hot_standby = on` on the primary.
 
-### Replication lag and read-your-writes
+### Lag-aware routing (`src/db/router.ts`)
 
-A streaming replica is asynchronous, so analytics reads can be slightly stale.
-PgPulse tolerates this deliberately: analytics is an aggregate dashboard, not a
-transactional read-after-write path, and the MV-vs-raw routing already treats
-the most recent hour specially. `/health` reports lag in bytes and seconds
-(`pg_wal_lsn_diff`, `pg_last_xact_replay_timestamp`) so lag is monitorable. For
-any future read-your-writes requirement, route that specific query to the
-primary.
+A background probe runs on the replica every `REPLICA_PROBE_INTERVAL_MS`
+(default 1s) and computes lag as `now() - pg_last_xact_replay_timestamp()`. A
+replica whose received LSN equals its replayed LSN counts as zero lag, so an
+idle primary does not look like a lagging replica. It is unusable when it is not
+in recovery, when `pg_stat_wal_receiver` shows no streaming connection, or when
+the probe errors or exceeds `REPLICA_PROBE_TIMEOUT_MS`.
+
+- Lag above `REPLICA_MAX_LAG_MS` (default 2000) fails over to the primary on the
+  next probe, and a request sent to the replica that then fails with a
+  connection-level error is re-run on the primary (reads are read-only, so this
+  is safe) while a fresh probe is triggered.
+- Returning to the replica needs `REPLICA_RECOVERY_PROBES` (default 3)
+  consecutive good probes, so a replica hovering near the limit does not flap.
+- `/health` shows `read_router`: current target, lag, last probe, reason,
+  failover count.
+- `pg_stat_wal_receiver` needs superuser or `pg_monitor`. Without it the router
+  treats the replica as not streaming and uses the primary (fails safe).
+
+**Trade-offs.** Failover can take up to one probe interval (about 1s) to notice,
+so a read can still be served up to roughly the limit plus one interval stale.
+When the replica is out, the primary absorbs all analytics load. Per-request lag
+checks would be tighter but add a round trip to every query. For a
+read-your-writes requirement, query the primary directly.
+
+---
+
+## Rollups
+
+`rollup_1m` and `rollup_1h` replace the hourly materialized view; see
+[`SCHEMA.md`](SCHEMA.md#rollups-rollup_1m-and-rollup_1h) for the tables, the
+watermark cursor mechanism, and how queries over one hour are split across
+rollups and raw events.
 
 ---
 
