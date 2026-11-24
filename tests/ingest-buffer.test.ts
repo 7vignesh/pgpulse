@@ -200,6 +200,26 @@ describe('IngestBuffer', () => {
     expect(buf.droppedCount).toBe(1);
   });
 
+  it('keeps flushing back-to-back while a full batch is waiting (not one batch per interval)', async () => {
+    const sizes: number[] = [];
+    const { buf } = make({
+      capacity: 100,
+      batchSize: 10,
+      flushIntervalMs: 60_000, // the timer must not be what drives these flushes
+      flush: async (b) => {
+        sizes.push(b.length);
+        await new Promise((r) => setTimeout(r, 5));
+        return [];
+      },
+    });
+    // Arrives while the first flush is in flight.
+    buf.offer(Array.from({ length: 10 }, (_, i) => entry(i)));
+    buf.offer(Array.from({ length: 30 }, (_, i) => entry(i)));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(sizes).toEqual([10, 10, 10, 10]);
+    expect(buf.depth).toBe(0);
+  });
+
   it('never runs two flushes at once', async () => {
     let active = 0;
     let max = 0;

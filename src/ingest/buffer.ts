@@ -85,6 +85,11 @@ export class IngestBuffer {
     const batch = this.ring.drain(this.opts.batchSize);
     this.inFlight = this.runFlush(batch).finally(() => {
       this.inFlight = null;
+      // Events that arrived while this flush ran could not start their own
+      // flush. If a full batch is waiting, start the next one now instead of
+      // leaving it for the interval timer (which would cap throughput at one
+      // batch per interval under sustained load).
+      if (this.ring.size >= this.opts.batchSize) void this.flushNow();
     });
     return this.inFlight;
   }
