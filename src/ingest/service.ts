@@ -5,9 +5,8 @@ import { primaryPool, withTransaction } from '../db/pool.js';
 import { escCopyText as esc } from './copy-format.js';
 
 /**
- * Ingest service. Writes go to the primary via PgBouncer. Every insert runs
- * inside a tenant-scoped transaction (SET LOCAL app.current_tenant_id) so RLS
- * on `events` enforces tenant isolation even at write time.
+ * Ingest types, plus a text-format COPY helper. The HTTP path is the buffered
+ * binary COPY pipeline (pipeline.ts, flush.ts).
  */
 
 export interface EventInput {
@@ -32,86 +31,6 @@ const COLUMNS = [
   'metadata',
   'ingested_at',
 ] as const;
-
-/**
- * Insert a single event. Uses a parameterized multi-column INSERT.
- */
-export async function insertEvent(tenantId: string, e: EventInput): Promise<{ id: string }> {
-  return withTransaction(
-    primaryPool,
-    async (client) => {
-      const { rows } = await client.query<{ id: string }>(
-        `INSERT INTO events
-           (tenant_id, endpoint, method, status_code, latency_ms,
-            user_agent, ip_address, metadata, ingested_at)
-         VALUES
-           ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, COALESCE($9::timestamptz, now()))
-         RETURNING id`,
-        [
-          tenantId,
-          e.endpoint,
-          e.method,
-          e.status_code,
-          e.latency_ms,
-          e.user_agent ?? null,
-          e.ip_address ?? null,
-          JSON.stringify(e.metadata ?? {}),
-          e.ingested_at ?? null,
-        ],
-      );
-      return rows[0];
-    },
-    { tenantId },
-  );
-}
-
-/**
- * Batch insert via a single multi-row INSERT inside one transaction.
- * Builds one parameterized statement with N value tuples — no per-row round
- * trips, no string interpolation of values.
- *
- * For very large batches COPY is faster; see insertEventsCopy.
- */
-export async function insertEventsBatch(
-  tenantId: string,
-  events: EventInput[],
-): Promise<{ inserted: number }> {
-  if (events.length === 0) return { inserted: 0 };
-
-  return withTransaction(
-    primaryPool,
-    async (client) => {
-      const params: unknown[] = [];
-      const tuples: string[] = [];
-
-      events.forEach((e, i) => {
-        const base = i * COLUMNS.length;
-        tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, ` +
-            `$${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, ` +
-            `COALESCE($${base + 9}::timestamptz, now()))`,
-        );
-        params.push(
-          tenantId,
-          e.endpoint,
-          e.method,
-          e.status_code,
-          e.latency_ms,
-          e.user_agent ?? null,
-          e.ip_address ?? null,
-          JSON.stringify(e.metadata ?? {}),
-          e.ingested_at ?? null,
-        );
-      });
-
-      const sql =
-        `INSERT INTO events (${COLUMNS.join(', ')}) VALUES ${tuples.join(', ')}`;
-      const res = await client.query(sql, params);
-      return { inserted: res.rowCount ?? events.length };
-    },
-    { tenantId },
-  );
-}
 
 /**
  * COPY-based bulk load for high-throughput ingest. Streams TSV into the

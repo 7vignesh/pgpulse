@@ -140,6 +140,9 @@ d('integration: alert system', () => {
       .set('x-api-key', apiKey)
       .send({ events });
 
+    const { flushIngest } = await import('../src/ingest/pipeline.js');
+    await flushIngest();
+
     const { rows } = await admin.query<{ rules_evaluated: number; rules_fired: number }>(
       'SELECT * FROM evaluate_alert_rules()',
     );

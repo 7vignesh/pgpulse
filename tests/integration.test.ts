@@ -83,11 +83,11 @@ d('integration: ingest + analytics', () => {
         latency_ms: 42,
         metadata: { region: 'us-east-1' },
       });
-    expect(res.status).toBe(201);
-    expect(res.body.id).toBeDefined();
+    expect(res.status).toBe(202);
+    expect(res.body.accepted).toBe(1);
   });
 
-  it('batch-ingests events in one transaction', async () => {
+  it('batch-ingests events via the buffered COPY path', async () => {
     const events = Array.from({ length: 50 }, (_, i) => ({
       endpoint: i % 2 === 0 ? '/api/login' : '/api/orders',
       method: 'GET' as const,
@@ -98,8 +98,11 @@ d('integration: ingest + analytics', () => {
       .post('/v1/events/batch')
       .set('x-api-key', apiKey)
       .send({ events });
-    expect(res.status).toBe(201);
-    expect(res.body.inserted).toBe(50);
+    expect(res.status).toBe(202);
+    expect(res.body.accepted).toBe(50);
+    // Ingest is buffered; wait for the commit before querying.
+    const { flushIngest } = await import('../src/ingest/pipeline.js');
+    await flushIngest();
   });
 
   it('returns an overview scoped to the tenant', async () => {
