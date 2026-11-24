@@ -83,6 +83,9 @@ d('integration: buffered COPY ingest', () => {
   });
 
   it('commits buffered events through binary COPY with correct column values', async () => {
+    // Inside the partitioned window (retention .. today + 7d), with a
+    // millisecond component to prove timestamps round-trip exactly.
+    const at = new Date(Math.floor(Date.now() / 1000) * 1000 - 3 * 86_400_000 + 123).toISOString();
     const res = await post(keyA, {
       events: [
         ev('/copy/values', {
@@ -92,7 +95,7 @@ d('integration: buffered COPY ingest', () => {
           user_agent: 'ua\twith\ttabs',
           ip_address: '10.1.2.3',
           metadata: { note: 'line1\nline2', n: 1 },
-          ingested_at: '2024-03-05T10:20:30.123Z',
+          ingested_at: at,
         }),
       ],
     });
@@ -111,7 +114,7 @@ d('integration: buffered COPY ingest', () => {
     expect(rows[0].user_agent).toBe('ua\twith\ttabs');
     expect(rows[0].ip).toBe('10.1.2.3');
     expect(rows[0].metadata).toEqual({ note: 'line1\nline2', n: 1 });
-    expect((rows[0].ingested_at as Date).toISOString()).toBe('2024-03-05T10:20:30.123Z');
+    expect((rows[0].ingested_at as Date).toISOString()).toBe(at);
   });
 
   it('dedupes by idempotency_key within one batch and across batches', async () => {

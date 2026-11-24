@@ -95,7 +95,8 @@ or "my p99 latency on `/search` is 2s."
   GIN indexes, incremental `rollup_1m` / `rollup_1h` tables
 - **Query layer:** `pg` (node-postgres), parameterized everywhere, no `SELECT *`
 - **Pooling:** PgBouncer in transaction mode
-- **Scheduling:** pg_cron (daily partition pre-creation); rollups run in an app worker
+- **Scheduling:** pg_cron (hourly daily-partition safety net); rollups and the
+  partition manager (archives expired partitions) run in the app
 - **Alerts:** app-side evaluator + outbox dispatcher coordinated with
   `FOR UPDATE SKIP LOCKED` leases (no queue lib, no Redis)
 - **Observability:** pg_stat_statements, replica lag and read-router state via `/health`
@@ -264,13 +265,14 @@ migrations/           sequential raw SQL (tenants, partitions, indexes, cron, al
 src/db/               PgBouncer-aware pools, lag-aware read router, migration runner
 src/rollup/           watermark-cursor rollup worker + segment planner
 scripts/              seed.ts (1M events) + benchmark.ts (EXPLAIN ANALYZE capture)
+src/partitions/       partition lifecycle: daily partitions, DETACH CONCURRENTLY, Parquet -> S3/MinIO, drop
 src/ingest/           POST /v1/events[/batch]  (ring buffer -> binary COPY, token buckets)
 src/query/            analytics services + rollup-vs-raw routing (range.ts is pure)
 src/tenants/          tenant CRUD + key rotation
 src/alerts/           rules/events services, routes, evaluator, outbox dispatcher
 src/middleware/       api-key auth, per-tenant rate limiting
 src/health/           /health: pool stats, replica lag, pg_stat_statements
-docker/               primary (pg_cron image + conf), replica, pgbouncer
+docker/               primary (pg_cron image + conf), replica, pgbouncer (MinIO: see docker-compose.yml)
 ```
 
 ## Buffered ingest

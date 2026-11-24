@@ -48,15 +48,18 @@ erDiagram
 
 ## Partitioning layout
 
-`events` is the partitioned parent; physical rows live in monthly children:
+`events` is the partitioned parent; physical rows live in daily children
+(`events_YYYYMMDD`), plus the monthly ones created by migration 002 until they
+age out:
 
 ```
 events (PARTITION BY RANGE (ingested_at))
-├── events_2026_05   FROM ('2026-05-01') TO ('2026-06-01')
-├── events_2026_06   FROM ('2026-06-01') TO ('2026-07-01')   <- current (hot)
-├── events_2026_07   FROM ('2026-07-01') TO ('2026-08-01')
-├── events_2026_08   FROM ('2026-08-01') TO ('2026-09-01')
-└── events_default   (catch-all; should normally stay empty)
+├── events_2026_11   FROM ('2026-11-01') TO ('2026-12-01')   <- monthly, from 002
+├── events_20261201  FROM ('2026-12-01') TO ('2026-12-02')   <- daily, from 010
+├── events_20261202  FROM ('2026-12-02') TO ('2026-12-03')
+└── ... through today + 7 days
+
+expired daily partitions: DETACH CONCURRENTLY -> Parquet on S3/MinIO -> DROP
 ```
 
 Indexes, RLS policies, and the FK are declared on the parent and inherited by

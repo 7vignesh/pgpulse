@@ -3,6 +3,8 @@
 #   postgres          primary (pg_stat_statements + pg_cron + replication)
 #   postgres-replica  streaming read replica
 #   pgbouncer         transaction-mode pooler in front of the primary
+#   minio             S3-compatible object store for cold Parquet archives
+#   minio-init        one-shot: creates the archive bucket
 #   migrate           one-shot migration runner (direct connection)
 #   app               Fastify API (writes via pgbouncer, reads via replica)
 # ===========================================================================
@@ -79,6 +81,47 @@ services:
         condition: service_healthy
     networks: [pgpulse]
 
+  # -------------------------------------------------------------------------
+  # S3-compatible object store for archived partitions. MinIO stopped
+  # publishing images to Docker Hub and Quay in late 2025, so this uses the
+  # Chainguard build of the same upstream project. It runs as uid 65532, so the
+  # data volume is chowned by "user: 0" here for dev; use a non-root volume
+  # owner (or real S3) in production.
+  # -------------------------------------------------------------------------
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: pgpulse-minio
+    user: "0"
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-pgpulse}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-pgpulse_minio_secret}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    healthcheck:
+      test: ["CMD", "/usr/bin/mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [pgpulse]
+
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    container_name: pgpulse-minio-init
+    user: "0"
+    entrypoint: ["/usr/bin/mc"]
+    command: ["mb", "--ignore-existing", "archive/${S3_BUCKET:-pgpulse-archive}"]
+    environment:
+      MC_HOST_archive: http://${S3_ACCESS_KEY:-pgpulse}:${S3_SECRET_KEY:-pgpulse_minio_secret}@minio:9000
+    depends_on:
+      minio:
+        condition: service_started
+    restart: "no"
+    networks: [pgpulse]
+
   migrate:
     build:
       context: .
@@ -107,6 +150,11 @@ services:
       REPLICA_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@postgres-replica:5432/${POSTGRES_DB:-pgpulse}
       ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-pgpulse}:${POSTGRES_PASSWORD:-pgpulse_secret}@postgres:5432/${POSTGRES_DB:-pgpulse}
       PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-pgpulse-archive}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-pgpulse}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-pgpulse_minio_secret}
+      PARTITION_RETENTION_DAYS: ${PARTITION_RETENTION_DAYS:-90}
     ports:
       - "3000:3000"
     depends_on:
@@ -114,11 +162,14 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
     networks: [pgpulse]
 
 volumes:
   pg_primary_data:
   pg_replica_data:
+  minio_data:
 
 networks:
   pgpulse:

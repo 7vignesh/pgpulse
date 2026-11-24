@@ -41,11 +41,14 @@ so a bare `id` PK is not possible; the composite is the standard pattern.
 ### Partition provisioning
 
 - Migration `002` creates the previous, current, and next two months plus a
-  `DEFAULT` partition (so ingest never fails on a missing range).
-- `create_events_partition(date)` is an idempotent helper.
-- A daily `pg_cron` job (`create-next-partition`) pre-creates next month's
-  partition so the `DEFAULT` partition stays empty. See SCALING.md for the
-  `pg_partman` upgrade path.
+  `DEFAULT` partition. Migration `010` retires the `DEFAULT` partition (Postgres
+  forbids `DETACH ... CONCURRENTLY` while one exists) and adds daily partitions.
+- `ensure_events_daily_partitions(ahead, back)` is the idempotent creator for
+  daily partitions (`events_YYYYMMDD`); the older monthly helper
+  `create_events_partition(date)` is kept for existing deployments.
+- An hourly `pg_cron` job (`ensure-daily-partitions`) and the partition manager
+  keep today..today+7 provisioned. Expired partitions are detached, archived to
+  Parquet and dropped (see SCALING.md "Partition lifecycle").
 
 ---
 

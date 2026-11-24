@@ -8,6 +8,7 @@ import { registerIngestRoutes } from './ingest/routes.js';
 import { registerQueryRoutes } from './query/routes.js';
 import { registerAlertRoutes } from './alerts/routes.js';
 import { startAlertWorkers } from './alerts/workers.js';
+import { startPartitionManager } from './partitions/manager.js';
 import { registerHealthRoute } from './health/route.js';
 import { startIngest, stopIngest } from './ingest/pipeline.js';
 import { PoolExhaustedError, closePools, primaryPool } from './db/pool.js';
@@ -87,6 +88,9 @@ async function main(): Promise<void> {
   const stopAlertWorkers = startAlertWorkers((msg) => app.log.info(msg));
   // Incremental rollups (watermark cursors); safe to run on several instances.
   const stopRollupWorker = startRollupWorker((msg) => app.log.info(msg), primaryPool);
+  // Partition lifecycle: pre-create daily partitions, archive + drop expired
+  // ones. Leader-elected with an advisory lock, so every instance may run it.
+  const stopPartitionManager = startPartitionManager((msg) => app.log.info(msg));
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -103,6 +107,7 @@ async function main(): Promise<void> {
     try {
       await stopAlertWorkers();
       await stopRollupWorker();
+      await stopPartitionManager();
       await app.close();
       await closePools();
       clearTimeout(forceExit);
