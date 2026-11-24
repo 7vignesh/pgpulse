@@ -7,7 +7,7 @@ import { registerTenantRoutes } from './tenants/routes.js';
 import { registerIngestRoutes } from './ingest/routes.js';
 import { registerQueryRoutes } from './query/routes.js';
 import { registerAlertRoutes } from './alerts/routes.js';
-import { startWebhookWorker } from './alerts/webhook.js';
+import { startAlertWorkers } from './alerts/workers.js';
 import { registerHealthRoute } from './health/route.js';
 import { startIngest, stopIngest } from './ingest/pipeline.js';
 import { PoolExhaustedError, closePools } from './db/pool.js';
@@ -74,9 +74,10 @@ async function main(): Promise<void> {
     ? rawPort
     : 3000;
 
-  // Webhook delivery worker (single setInterval). Only runs in the long-lived
-  // server process, never under tests that import buildServer().
-  const stopWebhookWorker = startWebhookWorker((msg) => app.log.info(msg));
+  // Alert evaluator + webhook dispatcher loops. Multiple instances are safe
+  // (SKIP LOCKED + leases). Only runs in the long-lived server process, never
+  // under tests that import buildServer().
+  const stopAlertWorkers = startAlertWorkers((msg) => app.log.info(msg));
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
     }, 10_000);
     forceExit.unref();
     try {
-      stopWebhookWorker();
+      await stopAlertWorkers();
       await app.close();
       await closePools();
       clearTimeout(forceExit);
